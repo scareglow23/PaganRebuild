@@ -124,6 +124,8 @@ fn light_of(shape: u32, frame: u32) -> Option<(f32, [f32; 3], bool)> {
     Some(match shape {
         // lamp posts (the lamp at the top), wall lamps that burn, the lamp at the end
         690 | 691 => (90.0, LAMP, false),
+        // a little tower on a roof with a lit window
+        661 => (70.0, CANDLE, false),
         314 | 317 | 640 => (95.0, LAMP, false),
         216 => (60.0, LAMP, false),
         // camp fire, fireplaces, fire pit, fire field
@@ -144,10 +146,30 @@ fn light_of(shape: u32, frame: u32) -> Option<(f32, [f32; 3], bool)> {
         480 | 483 | 660 => (100.0, FIRE, true),
         110 => (180.0, FIRE, true),
         260 | 261 => (90.0, FIRE, true),
+        // explosions: a big one (0-19), a small one (20-34), the burst of a
+        // flame bolt (40-65): flaring up and dying down over their frames
+        578 => {
+            let (first, last, peak, radius) = match frame {
+                0..=19 => (0, 19, 2, 200.0),
+                20..=34 => (20, 34, 23, 140.0),
+                40..=65 => (40, 58, 46, 150.0),
+                _ => return None,
+            };
+            if frame > last {
+                return None;
+            }
+            let k = if frame <= peak { (frame - first + 1) as f32 / (peak - first + 1) as f32 } else { (last - frame + 1) as f32 / (last - peak + 1) as f32 };
+            (radius * (0.4 + 0.6 * k), FIRE.map(|c| c * k), true)
+        }
         59 | 372 | 697 => (60.0, FIRE, true),
         // candles and candlesticks, when lit
         454 if frame & 3 != 0 => (55.0, CANDLE, true),
         452 if frame & 3 != 0 => (75.0, CANDLE, true),
+        // tall candlesticks, when lit (the first frame of each four is out):
+        // a candle, one with a small blue flame, a black one
+        453 if frame & 3 != 0 && frame < 4 => (75.0, CANDLE, true),
+        453 if frame & 3 != 0 && frame < 8 => (45.0, [0.45, 0.6, 1.0], true),
+        453 if frame & 3 != 0 => (45.0, CANDLE, true),
         // lava, on the ground and running down walls
         111 | 409 | 479 | 487 => (90.0, LAVA, false),
         413 | 486 | 528 => (90.0, LAVA, false),
@@ -415,15 +437,19 @@ pub fn apply(surf: &mut Surface, lights: &[Light], look: Look, ids: &[u32], item
                 continue;
             }
             let (dim, lamp) = if index.is_some_and(|i| rooms.get(i).copied().unwrap_or(false)) { (&dim_in, lamp_in) } else { (&dim_out, lamp_out) };
-            let height = thing.map(|it| (it.z, it.z + infos.get(it.shape as usize).map_or(0, |si| si.z * 8)));
+            let si = thing.and_then(|it| infos.get(it.shape as usize));
+            let height = thing.map(|it| (it.z, it.z + si.map_or(0, |si| si.z * 8)));
+            let roof = si.is_some_and(|si| si.roof);
             let mut l = [0.0f32; 3];
             for (f, &(x0, fy0, x1, fy1)) in fields.iter().zip(&spans) {
                 if x < x0 || y < fy0 || x >= x1 || y >= fy1 {
                     continue;
                 }
                 // not on what stands above the light or lies far below it
+                // and a roof only from a light as high as it (the slopes of
+                // a roof come down lower than a candle in the house stands)
                 if let Some((foot, top)) = height {
-                    if foot >= f.top || top < f.z - BELOW {
+                    if foot >= f.top || top < f.z - BELOW || (roof && foot > f.z) {
                         continue;
                     }
                 }
