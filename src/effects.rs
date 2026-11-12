@@ -431,10 +431,14 @@ impl Game {
     }
 
     /// The player clicked a spot on the ground and the walk there ended
-    /// short of it: the Avatar shakes his head. (Not where a climb up to it
-    /// follows: that shakes his head itself if it finds no way.)
+    /// clearly short of it: the Avatar shakes his head. (Not a stride or
+    /// so before it, beside a table, say: that is there enough. Nor where
+    /// a climb up to it follows: that shakes his head itself if it finds
+    /// no way.)
     fn not_there(&mut self, pf: &Pathfind, it: &Item, level: Option<i32>) {
-        if pf.actor == AVATAR && pf.target == 0 && !pf.scripted && level.is_some() && !self.climb_follows(it.z) {
+        const FAR: i32 = 96;
+        let far = (pf.pos.0 - it.x).abs().max((pf.pos.1 - it.y).abs()) > FAR;
+        if pf.actor == AVATAR && pf.target == 0 && !pf.scripted && level.is_some() && far && !self.climb_follows(it.z) {
             self.animate(AVATAR, anim::SHAKE_HEAD);
         }
     }
