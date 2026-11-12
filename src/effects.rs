@@ -348,6 +348,21 @@ impl Game {
                     w.points.insert(0, (it.x, it.y));
                     w.drops.insert(0, false);
                 }
+                // The player's click on a spot he cannot get to (in the
+                // lava): the way ends as near as it goes, right at the
+                // shore, and the last stride carried him on into the lava,
+                // where he stood and burnt. At a shore it ends a step short.
+                let n = w.points.len();
+                if pf.actor == AVATAR && pf.target == 0 && !pf.scripted && n >= 2 && !w.drops[n - 1] && self.near_sea(it, w.points[n - 1]) {
+                    let (ex, ey) = w.points[n - 1];
+                    let (px, py) = w.points[n - 2];
+                    let (sx, sy) = (ex - px, ey - py);
+                    let len = ((sx * sx + sy * sy) as f32).sqrt();
+                    if (tx - ex).abs().max((ty - ey).abs()) > reach.max(40) && len > 64.0 {
+                        let k = 32.0 / len;
+                        w.points[n - 1] = (ex - (sx as f32 * k) as i32, ey - (sy as f32 * k) as i32);
+                    }
+                }
                 self.paths.insert(pf.actor, w);
                 true
             }
@@ -421,7 +436,11 @@ impl Game {
                 let (sx, sy) = (wx - px, wy - py);
                 let len = ((sx * sx + sy * sy) as f32).sqrt().max(1.0);
                 let off = ((sx * dy - sy * dx) as f32).abs() / len;
-                if off <= 40.0 {
+                // (not close to the end of the player's way at a shore:
+                // there the line's direction carried him past the end to
+                // the side into the lava, where he stood and burnt)
+                let at_end = pf.actor == AVATAR && !pf.scripted && pf.next as usize + 1 == path.len() && dx.abs().max(dy.abs()) <= 64 && self.near_sea(it, (wx, wy));
+                if off <= 40.0 && !at_end {
                     keep_dir = Some(world_dir(sx, sy) as i32);
                 }
             }
@@ -441,6 +460,16 @@ impl Game {
         if pf.actor == AVATAR && pf.target == 0 && !pf.scripted && level.is_some() && far && !self.climb_follows(it.z) {
             self.animate(AVATAR, anim::SHAKE_HEAD);
         }
+    }
+
+    /// Would `it`, standing at `(x, y)`, be within a stride of water or
+    /// lava (the shore where a walk must not carry on)?
+    fn near_sea(&self, it: &Item, (x, y): (i32, i32)) -> bool {
+        const STRIDE: i32 = 24;
+        let Some(si) = self.data.infos.get(it.shape as usize) else { return false };
+        let b = crate::map::WorldBox::of(it, si);
+        let there = crate::map::WorldBox { x: x + STRIDE, y: y + STRIDE, xd: b.xd + 2 * STRIDE, yd: b.yd + 2 * STRIDE, ..b };
+        self.map().position_info(&there, &there, &self.data.infos, it.id).touches_sea
     }
 
     /// Ends a walk in the standing pose, turned towards `face` if given.

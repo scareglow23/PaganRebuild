@@ -3,3 +3,6 @@
 !/docs/*.png
 /pagan_frames/
 /CLAUDE.local.md
+
+# local Claude Code settings
+.claude/settings.local.json
