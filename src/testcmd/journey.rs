@@ -60,7 +60,7 @@ fn situation(game: &Game) -> String {
 }
 
 /// One tick, clicking speech away now and then as a player does.
-fn tick(game: &mut Game, n: u32) {
+pub(super) fn tick(game: &mut Game, n: u32) {
     if n % 40 == 39 && !game.barks.is_empty() {
         game.skip_barks();
     }
@@ -129,7 +129,7 @@ fn wait_for(game: &mut Game, cond: &str, ticks: u32, cmd: &str) -> Result<u32, S
 }
 
 /// How many creatures close to the Avatar (near enough to strike at) are fighting.
-fn enemies(game: &Game) -> usize {
+pub(super) fn enemies(game: &Game) -> usize {
     let av = game.avatar();
     game.map().items_near(av.x, av.y, 384).into_iter().map(|i| game.map().items[i])
         // (people and creatures that fight; monsters that are no persons,

@@ -156,6 +156,8 @@ usage: PaganRebuild [options]
                         event:<id>,<name>  start an item's script for an event (look, use, hatch, schedule ...)
                         pathshown      the tiles of the invisible path shown on this map
                         bot:<seed>,<ticks>  the test bot plays on its own and prints rule breaches (lines BUG ...)
+                        explore:<seed>,<ticks>  a bot that plays as a player new to the game: goes to what is new on the screen,
+                                       asks people everything, loots, fights or flees, rests; checks the same rules
 
 mouse: left click = look at, double click = use, drag = move an item (shift: part of a stack; onto the Avatar:
        into the backpack), right button = walk towards the pointer;

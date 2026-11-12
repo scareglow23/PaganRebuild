@@ -9,6 +9,7 @@
 use super::*;
 use crate::game::AVATAR;
 use crate::map::WorldBox;
+use crate::hash::HashSet;
 
 /// After this many ticks a breach counts (shorter ones are part of normal
 /// play: a jump, a step down).
@@ -23,16 +24,19 @@ const PER_KIND: usize = 5;
 /// The savegame slot the bot goes back to after a death.
 const CHECKPOINT: usize = 899;
 
-struct Rng(u64);
+pub(super) struct Rng(u64);
 
 impl Rng {
-    fn next(&mut self) -> u32 {
+    pub fn new(seed: i32) -> Rng {
+        Rng(seed as u64 * 0x9E37_79B9_7F4A_7C15 + 1)
+    }
+    pub fn next(&mut self) -> u32 {
         self.0 ^= self.0 << 13;
         self.0 ^= self.0 >> 7;
         self.0 ^= self.0 << 17;
         (self.0 >> 32) as u32
     }
-    fn below(&mut self, n: u32) -> u32 {
+    pub fn below(&mut self, n: u32) -> u32 {
         if n == 0 { 0 } else { self.next() % n }
     }
 }
@@ -43,23 +47,68 @@ enum Plan {
     Wait(u32),
 }
 
-struct Bot {
+/// The rules the game must keep, checked after every tick, and how much of
+/// the game a run got to see (used by both bots: `bot` and `explore`).
+pub(super) struct Watch {
     /// Ticks played in this run (to replay up to a finding).
-    step: u32,
-    rng: Rng,
-    plan: Plan,
-    found: Vec<(String, (i32, i32, i32))>,
+    pub step: u32,
+    pub found: Vec<(String, (i32, i32, i32))>,
+    /// The last breach reported, as printed.
+    pub last: String,
     floating: u32,
     inside: u32,
     held: u32,
     saves: usize,
+    /// Places stood on (map, x / CELL, y / CELL).
+    cells: HashSet<(usize, i32, i32)>,
+    /// Maps entered.
+    maps: HashSet<usize>,
+    /// Script classes that ran (what of the game's scripts got to work).
+    classes: HashSet<u16>,
+}
+
+/// The size of a place for the coverage (a room, a stretch of street).
+const CELL: i32 = 256;
+
+impl Watch {
+    pub fn new() -> Watch {
+        Watch { step: 0, found: Vec::new(), last: String::new(), floating: 0, inside: 0, held: 0, saves: 0, cells: HashSet::default(), maps: HashSet::default(), classes: HashSet::default() }
+    }
+
+    /// Back at the checkpoint after a death: what was counted up starts again.
+    pub fn restart(&mut self) {
+        (self.floating, self.inside, self.held) = (0, 0, 0);
+    }
+
+    /// Standing fine: a moment to save a checkpoint.
+    pub fn calm(&self) -> bool {
+        self.floating == 0 && self.inside == 0
+    }
+
+    /// Has he stood on this place yet?
+    pub fn seen(&self, map: usize, x: i32, y: i32) -> bool {
+        self.cells.contains(&(map, x.div_euclid(CELL), y.div_euclid(CELL)))
+    }
+
+    /// The coverage, as one line: "maps .. places .. scripts ..".
+    pub fn coverage(&self) -> String {
+        let mut maps: Vec<usize> = self.maps.iter().copied().collect();
+        maps.sort_unstable();
+        format!("maps {} {maps:?}, places {}, script classes {}", maps.len(), self.cells.len(), self.classes.len())
+    }
+}
+
+struct Bot {
+    rng: Rng,
+    plan: Plan,
+    watch: Watch,
     /// How many things it used (clicks that hit something usable).
     uses: u32,
 }
 
-impl Bot {
+impl Watch {
     /// Reports a breach (once per kind and place).
-    fn report(&mut self, game: &mut Game, kind: &str, detail: String) {
+    pub fn report(&mut self, game: &mut Game, kind: &str, detail: String) {
         let av = game.avatar();
         let here = (av.x, av.y, av.z);
         let same_kind = self.found.iter().filter(|(k, _)| k == kind).count();
@@ -70,11 +119,17 @@ impl Bot {
         let slot = 900 + self.saves;
         self.saves += 1;
         let saved = game.save_to(slot).map(|_| format!("slot {slot}")).unwrap_or_else(|e| format!("not saved: {e}"));
-        println!("BUG {kind} | map {} at {},{},{} | tick {} | {detail} | {saved} | bot step {}", game.cur_map, av.x, av.y, av.z, game.tick, self.step);
+        self.last = format!("BUG {kind} | map {} at {},{},{} | tick {} | {detail} | {saved} | bot step {}", game.cur_map, av.x, av.y, av.z, game.tick, self.step);
+        println!("{}", self.last);
     }
 
     /// The rules, checked after every tick.
-    fn check(&mut self, game: &mut Game) {
+    pub fn check(&mut self, game: &mut Game) {
+        // what of the game he got to
+        let a = game.avatar();
+        self.maps.insert(game.cur_map);
+        self.cells.insert((game.cur_map, a.x.div_euclid(CELL), a.y.div_euclid(CELL)));
+        self.classes.extend(game.scripts.procs.iter().filter(|p| !p.terminated && p.class != 0xFFFF).map(|p| p.class));
         let av = game.avatar();
         let Some(info) = game.data.infos.get(av.shape as usize).copied() else { return };
         let (xd, yd, zd) = info.footpad(av.flags & crate::map::FLG_FLIPPED != 0);
@@ -124,6 +179,9 @@ impl Bot {
         }
     }
 
+}
+
+impl Bot {
     /// Picks what to do next, or answers what the game asks.
     fn act(&mut self, game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions) -> Option<MoveInput> {
         if let Some((_, choices)) = &game.ask {
@@ -212,39 +270,64 @@ impl Bot {
     }
 }
 
-pub(super) fn run(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _st: &mut State, name: &str, arg: &str, cmd: &str) -> Result<Flow, String> {
-    if name != "bot" {
-        return Ok(Flow::Unknown);
+/// Going back after a death, as a player loads his last savegame: the bot
+/// saves now and then where he stands fine and loads it when he died.
+pub(super) struct Checkpoint {
+    saved: bool,
+    pub deaths: u32,
+}
+
+impl Checkpoint {
+    pub fn new(game: &Game) -> Checkpoint {
+        Checkpoint { saved: game.save_to(CHECKPOINT).is_ok(), deaths: 0 }
     }
-    let (seed, ticks) = point(arg, cmd)?;
-    let mut bot = Bot { step: 0, rng: Rng(seed as u64 * 0x9E37_79B9_7F4A_7C15 + 1), plan: Plan::Wait(0), found: Vec::new(), floating: 0, inside: 0, held: 0, saves: 0, uses: 0 };
-    // a checkpoint to go back to after a death
-    let mut checkpoint = game.save_to(CHECKPOINT).is_ok();
-    let mut deaths = 0;
-    for n in 0..ticks {
-        bot.step = n as u32;
-        let input = bot.act(game, surf, opts);
-        game.step(input);
-        bot.check(game);
+
+    /// After a tick: saves now and then; after a death says who was
+    /// fighting him and goes back. False when it is over (no savegame,
+    /// or too many deaths).
+    pub fn after_tick(&mut self, game: &mut Game, watch: &mut Watch, n: u32) -> bool {
         if game.state(AVATAR).dead {
             let av = game.avatar();
             let close: Vec<crate::map::Item> = game.map().items_near(av.x, av.y, 1024).into_iter().map(|i| game.map().items[i]).filter(|t| t.is_actor() && t.id != AVATAR && !t.dead).collect();
             let fighting: Vec<String> = close.iter().filter(|t| game.state(t.id).in_combat).map(|t| format!("{} (shape {})", t.id, t.shape)).collect();
             println!("EVENT avatar-died | map {} at {},{},{} | tick {} | fighting near: {}", game.cur_map, av.x, av.y, av.z, game.tick, if fighting.is_empty() { "nobody".to_string() } else { fighting.join(", ") });
-            deaths += 1;
-            if !checkpoint || deaths > 20 || game.load_from(CHECKPOINT).is_err() {
-                break;
+            self.deaths += 1;
+            if !self.saved || self.deaths > 20 || game.load_from(CHECKPOINT).is_err() {
+                return false;
             }
+            watch.restart();
+            return true;
+        }
+        if n % 3000 == 2999 && game.player_in_control() && watch.calm() {
+            self.saved = game.save_to(CHECKPOINT).is_ok();
+        }
+        true
+    }
+}
+
+pub(super) fn run(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _st: &mut State, name: &str, arg: &str, cmd: &str) -> Result<Flow, String> {
+    if name != "bot" {
+        return Ok(Flow::Unknown);
+    }
+    let (seed, ticks) = point(arg, cmd)?;
+    let mut bot = Bot { rng: Rng::new(seed), plan: Plan::Wait(0), watch: Watch::new(), uses: 0 };
+    let mut checkpoint = Checkpoint::new(game);
+    for n in 0..ticks as u32 {
+        bot.watch.step = n;
+        let input = bot.act(game, surf, opts);
+        game.step(input);
+        bot.watch.check(game);
+        let dead = game.state(AVATAR).dead;
+        if !checkpoint.after_tick(game, &mut bot.watch, n) {
+            break;
+        }
+        if dead {
             // play differently from there
             bot.rng.next();
             bot.plan = Plan::Wait(0);
-            (bot.floating, bot.inside, bot.held) = (0, 0, 0);
-            continue;
-        }
-        if n % 3000 == 2999 && game.player_in_control() && bot.floating == 0 && bot.inside == 0 {
-            checkpoint = game.save_to(CHECKPOINT).is_ok();
         }
     }
-    println!("bot: seed {seed}, {} findings, {deaths} deaths, {} things used", bot.found.len(), bot.uses);
+    println!("bot: seed {seed}, {} findings, {} deaths, {} things used", bot.watch.found.len(), checkpoint.deaths, bot.uses);
+    println!("coverage: {}", bot.watch.coverage());
     Ok(Flow::Done)
 }

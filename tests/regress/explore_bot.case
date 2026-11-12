@@ -1,0 +1,5 @@
+# The exploring bot plays the beginning of the game without breaking a rule: it talks to Devon, asks him everything and goes on from there
+do: explore:1,3000
+expect: explore: seed 1, 0 findings, 0 deaths
+expect: coverage: maps 1 [3]
+reject: BUG 

@@ -14,7 +14,7 @@ PaganRebuild is an engine for Ultima VIII: Pagan written in Rust. It reads the o
 - `src/testcmd/`: the test commands of `--do`.
 - `data/*.ini`: weapon, armour and monster tables, built into the program with `include_str!`.
 - `tests/regress/*.case`, `tests/regress.rs`: regression cases. `tests/journey/*.case`, `tests/journey.rs`: a playthrough of the whole game.
-- `tools/bots/`: runs the test bot from many savegames.
+- `tools/bots/`: runs the test bots from many savegames (`bot`: at random; `explore`: as a player new to the game, see `src/testcmd/explore.rs`), collects their findings (`collect.py`) and shows the protocol of one run as a page (`protocol.py`).
 - `docs/`: the project page (GitHub Pages, source `main` / `docs`).
 
 ## Toolchain
@@ -43,6 +43,7 @@ PaganRebuild --screenshot out.png --do "loadslot:5;t5;zoom:75;inv"
 ## Tests
 
 - `cargo test --release`: unit tests and all regression cases (about two minutes; skipped without the game data). One case: `PAGAN_CASE=<name> cargo test --release -- --nocapture`.
+- Bots: `bot:<seed>,<ticks>` plays at random, `explore:<seed>,<ticks>` as a player would; both print rule breaches as `BUG ...` and how much of the game they saw (`coverage: ...`). With `PAGAN_BOT_LOG=<file>` the explorer writes a protocol of its game (one JSON event per line: way, choices, answers, what each use changed, state, findings); `python tools/bots/protocol.py <file> <page.html>` shows it.
 - The playthrough is ignored by default: `cargo test --release --test journey -- --ignored --nocapture` (long).
 - A case file has `# comment`, `args:`, `do:`, `expect:`, `reject:`, `needs:` lines; see the top of `tests/regress.rs`.
 - Tests do what a player can do: talk and pick answers (`talk:`, `say:`), use things, walk, wait (`until:`), or start a named event with `event:<id>,<name>`. They do not call script functions by class and offset and do not check script instruction pointers; expectations check what can be seen (positions, frames, flags, messages).

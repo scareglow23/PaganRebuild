@@ -16,6 +16,8 @@ mod sound;
 mod ui;
 mod ticks;
 mod bot;
+mod explore;
+mod botlog;
 mod journey;
 
 use crate::*;
@@ -52,7 +54,7 @@ type Group = fn(&mut Game, &mut Surface, &mut ViewOptions, &mut State, &str, &st
 
 /// In the order they are asked (letting time pass comes last: its names
 /// are only a letter and a number).
-const GROUPS: [Group; 11] = [bot::run, journey::run, scripts::run, world::run, movement::run, items::run, combat::run, view::run, sound::run, ui::run, ticks::run];
+const GROUPS: [Group; 12] = [bot::run, explore::run, journey::run, scripts::run, world::run, movement::run, items::run, combat::run, view::run, sound::run, ui::run, ticks::run];
 
 /// Runs the test commands of `--do`.
 pub fn run_commands(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, commands: &str) -> Result<(), String> {
