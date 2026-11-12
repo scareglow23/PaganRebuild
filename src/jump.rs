@@ -142,6 +142,12 @@ impl Game {
         }
     }
 
+    /// Will the Avatar, standing at height `z`, climb on towards the spot
+    /// clicked when his walk ends (it lies higher up)?
+    pub(crate) fn climb_follows(&self, z: i32) -> bool {
+        self.climb_goal.is_some_and(|g| z + 8 < g.z)
+    }
+
     /// Is something in the way within two steps in direction `d`, at the
     /// height the Avatar stands (the ledge he should climb)?
     fn ledge_ahead(&self, av: &crate::map::Item, d: u8) -> bool {

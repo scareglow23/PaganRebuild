@@ -204,6 +204,9 @@ impl Game {
         if arrived || pf.ticks > 1500 || pf.stuck > 12 {
             // stop in the standing pose, facing the target
             self.stop_walk(pf.actor, &it, if arrived && !to_spot { (dx, dy) } else { (0, 0) });
+            if !arrived {
+                self.not_there(pf, &it, level);
+            }
             return true;
         }
 
@@ -217,6 +220,7 @@ impl Game {
             // the player's Avatar does not march blindly at what he cannot
             // reach (into the water, against a wall)
             self.stop_walk(pf.actor, &it, (0, 0));
+            self.not_there(pf, &it, level);
             return true;
         }
         pf.check_progress(&it);
@@ -234,12 +238,14 @@ impl Game {
             pf.detour = (0, 0);
         } else if below_goal {
             self.stop_walk(pf.actor, &it, (0, 0));
+            self.not_there(pf, &it, level);
             return true;
         } else if pf.actor == AVATAR && self.paths.get(&pf.actor).is_some_and(|w| !w.points.is_empty()) && !(exact && dx.abs().max(dy.abs()) <= 64) {
             // At the end of the way: it leads as close as one can get, so
             // stop rather than walk straight on (into the water, say); onto
             // something small the last bit is straight on.
             self.stop_walk(pf.actor, &it, if to_spot { (0, 0) } else { (tx - it.x, ty - it.y) });
+            self.not_there(pf, &it, level);
             return true;
         }
         let mut dir = keep_dir.unwrap_or(world_dir(dx, dy) as i32);
@@ -422,6 +428,15 @@ impl Game {
             return Some(((dx, dy), keep_dir));
         }
         None
+    }
+
+    /// The player clicked a spot on the ground and the walk there ended
+    /// short of it: the Avatar shakes his head. (Not where a climb up to it
+    /// follows: that shakes his head itself if it finds no way.)
+    fn not_there(&mut self, pf: &Pathfind, it: &Item, level: Option<i32>) {
+        if pf.actor == AVATAR && pf.target == 0 && !pf.scripted && level.is_some() && !self.climb_follows(it.z) {
+            self.animate(AVATAR, anim::SHAKE_HEAD);
+        }
     }
 
     /// Ends a walk in the standing pose, turned towards `face` if given.
