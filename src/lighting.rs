@@ -618,9 +618,10 @@ fn wall_facing(it: &crate::map::Item, infos: &[crate::shape::ShapeInfo]) -> Opti
     Some(if xd <= 32 { (1, 0) } else { (0, 1) })
 }
 
-/// A post or the corner stone of walls: solid, tall, small across.
+/// A post or the corner stone of walls: solid, tall, small across (not a
+/// standing candlestick or lamp: that is inside if under a roof).
 fn is_post(it: &crate::map::Item, infos: &[crate::shape::ShapeInfo]) -> bool {
-    infos.get(it.shape as usize).is_some_and(|si| {
+    light_of(it.shape, it.frame).is_none() && infos.get(it.shape as usize).is_some_and(|si| {
         let (xd, yd, zd) = si.footpad(it.flags & crate::map::FLG_FLIPPED != 0);
         si.solid && !si.roof && zd >= 32 && xd <= 32 && yd <= 32
     })
