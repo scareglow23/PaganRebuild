@@ -345,9 +345,9 @@ impl Game {
                 // The player's click on a spot he cannot get to (in the
                 // lava): the way ends as near as it goes, right at the
                 // shore, and the last stride carried him on into the lava,
-                // where he stood and burnt. It ends a step short of that.
+                // where he stood and burnt. At a shore it ends a step short.
                 let n = w.points.len();
-                if pf.actor == AVATAR && pf.target == 0 && !pf.scripted && n >= 2 && !w.drops[n - 1] {
+                if pf.actor == AVATAR && pf.target == 0 && !pf.scripted && n >= 2 && !w.drops[n - 1] && self.near_sea(it, w.points[n - 1]) {
                     let (ex, ey) = w.points[n - 1];
                     let (px, py) = w.points[n - 2];
                     let (sx, sy) = (ex - px, ey - py);
@@ -430,10 +430,10 @@ impl Game {
                 let (sx, sy) = (wx - px, wy - py);
                 let len = ((sx * sx + sy * sy) as f32).sqrt().max(1.0);
                 let off = ((sx * dy - sy * dx) as f32).abs() / len;
-                // (not close to the end of the way: there the line's
-                // direction carried him past the end to the side, by a
-                // shore into the lava, where he stood and burnt)
-                let at_end = pf.next as usize + 1 == path.len() && dx.abs().max(dy.abs()) <= 64;
+                // (not close to the end of the player's way at a shore:
+                // there the line's direction carried him past the end to
+                // the side into the lava, where he stood and burnt)
+                let at_end = pf.actor == AVATAR && !pf.scripted && pf.next as usize + 1 == path.len() && dx.abs().max(dy.abs()) <= 64 && self.near_sea(it, (wx, wy));
                 if off <= 40.0 && !at_end {
                     keep_dir = Some(world_dir(sx, sy) as i32);
                 }
@@ -441,6 +441,16 @@ impl Game {
             return Some(((dx, dy), keep_dir));
         }
         None
+    }
+
+    /// Would `it`, standing at `(x, y)`, be within a stride of water or
+    /// lava (the shore where a walk must not carry on)?
+    fn near_sea(&self, it: &Item, (x, y): (i32, i32)) -> bool {
+        const STRIDE: i32 = 24;
+        let Some(si) = self.data.infos.get(it.shape as usize) else { return false };
+        let b = crate::map::WorldBox::of(it, si);
+        let there = crate::map::WorldBox { x: x + STRIDE, y: y + STRIDE, xd: b.xd + 2 * STRIDE, yd: b.yd + 2 * STRIDE, ..b };
+        self.map().position_info(&there, &there, &self.data.infos, it.id).touches_sea
     }
 
     /// Ends a walk in the standing pose, turned towards `face` if given.
