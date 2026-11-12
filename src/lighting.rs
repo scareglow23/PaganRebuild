@@ -517,11 +517,13 @@ pub const OUTSIDE: u8 = 1;
 
 /// For the things painted (by index into the items): does it stand in a
 /// room under a roof (`IN_HOUSE`, `OUTSIDE`)? The answers are kept
-/// (`seen`) while the thing stays where it is; at most `ROOM_CHECKS` new
-/// ones per picture, the others are not known (0) until their turn comes
-/// (a moment later).
+/// (`seen`) while the thing stays where it is; new ones only as far as
+/// `ROOM_CHECKS` reaches per picture (a wall or post costs `WALL_COST`, it
+/// is looked at along several ways), the others are not known (0) until
+/// their turn comes a few pictures later (no stutter after loading).
 pub fn rooms(painted: &[crate::view::Painted], map: &crate::map::MapData, map_no: usize, infos: &[crate::shape::ShapeInfo], seen: &mut RoomsSeen) -> Vec<u8> {
-    const ROOM_CHECKS: usize = 600;
+    const ROOM_CHECKS: usize = 400;
+    const WALL_COST: usize = 8;
     if seen.0 != map_no {
         *seen = (map_no, HashMap::default());
     }
@@ -534,13 +536,8 @@ pub fn rooms(painted: &[crate::view::Painted], map: &crate::map::MapData, map_no
         let inside = match known {
             Some(inside) => Some(inside),
             None if checks < ROOM_CHECKS => {
-                checks += 1;
-                let inside = match wall_facing(it, infos) {
-                    Some(facing) => faces_room(map, infos, it, facing),
-                    // a post or corner stone: both seen sides
-                    None if is_post(it, infos) => faces_room(map, infos, it, (1, 0)) && faces_room(map, infos, it, (0, 1)),
-                    None => under_roof(map, infos, it),
-                };
+                checks += if wall_facing(it, infos).is_some() || is_post(it, infos) { WALL_COST } else { 1 };
+                let inside = inside_house(map, infos, it);
                 seen.1.insert(it.id, (at, inside));
                 Some(inside)
             }
@@ -568,44 +565,23 @@ pub fn light_inside(map: &crate::map::MapData, map_no: usize, infos: &[crate::sh
             return Some(inside);
         }
     }
-    // hanging on a wall: on the side of the wall it is on
-    let inside = match on_wall(map, infos, it) {
-        Some((wall, facing)) => faces_room(map, infos, wall, facing),
-        None => around_under_roof(map, infos, it),
-    };
+    let inside = inside_house(map, infos, it);
     seen.1.insert(it.id, (at, inside));
     Some(inside)
 }
 
-/// The wall a thing hangs on (right behind it, its seen side towards the
-/// thing), and the way that side faces.
-fn on_wall<'a>(map: &'a crate::map::MapData, infos: &[crate::shape::ShapeInfo], it: &crate::map::Item) -> Option<(&'a crate::map::Item, (i32, i32))> {
-    let si = infos.get(it.shape as usize)?;
-    let b = crate::map::WorldBox::of(it, si);
-    let (mx, my) = (b.x - b.xd / 2, b.y - b.yd / 2);
-    let nowhere = crate::map::WorldBox { x: 0, y: 0, z: -10000, xd: 0, yd: 0, zd: 0 };
-    for (dx, dy) in [(-1, 0), (0, -1)] {
-        let (cx, cy) = (mx + dx * (b.xd / 2 + 8), my + dy * (b.yd / 2 + 8));
-        let probe = crate::map::WorldBox { x: cx + 8, y: cy + 8, z: it.z, xd: 16, yd: 16, zd: 16 };
-        let pi = map.position_info(&probe, &nowhere, infos, it.id);
-        if pi.valid {
-            continue;
-        }
-        if let Some(wall) = pi.blocker.and_then(|id| map.get(id)) {
-            if wall_facing(wall, infos) == Some((-dx, -dy)) {
-                return Some((wall, (-dx, -dy)));
-            }
-        }
+/// Is a thing inside a house? Of a wall or post the side seen counts,
+/// anything else is inside if under a roof.
+fn inside_house(map: &crate::map::MapData, infos: &[crate::shape::ShapeInfo], it: &crate::map::Item) -> bool {
+    match wall_facing(it, infos) {
+        Some(facing) => faces_room(map, infos, it, facing),
+        // a post or corner stone: both seen sides
+        None if is_post(it, infos) => faces_room(map, infos, it, (1, 0)) && faces_room(map, infos, it, (0, 1)),
+        None => under_roof(map, infos, it),
     }
-    None
 }
 
-/// As `under_roof`, and around it as well, most of five points (above a
-/// fireplace the chimney goes through the roof; a lamp or wall under the
-/// eaves or a porch is still outside).
-fn around_under_roof(map: &crate::map::MapData, infos: &[crate::shape::ShapeInfo], it: &crate::map::Item) -> bool {
-    [(0, 0), (48, 0), (-48, 0), (0, 48), (0, -48)].iter().filter(|&&(dx, dy)| under_roof(map, infos, &crate::map::Item { x: it.x + dx, y: it.y + dy, ..*it })).count() >= 3
-}
+
 
 /// A wall (solid, tall, thin in x or y and long in the other; not a post):
 /// of it only the side towards the viewer is seen, the one facing +x or
