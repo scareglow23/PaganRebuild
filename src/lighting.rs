@@ -294,6 +294,8 @@ impl Game {
                 && o.z > it.z
                 && o.z <= it.z + 48
                 && oi.land
+                // (not a roof: the hearth of a smithy lies just under it)
+                && !oi.roof
                 && light_of(o.shape, o.frame).is_none()
                 && cx < b.x
                 && cx >= b.x - b.xd
@@ -475,7 +477,7 @@ pub fn apply(surf: &mut Surface, lights: &[Light], look: Look, ids: &[u32], item
                 // and a roof only from a light as high as it (the slopes of
                 // a roof come down lower than a candle in the house stands)
                 if let Some((foot, top)) = height {
-                    if foot >= f.top || top < f.z - BELOW || (roof && foot > f.z) {
+                    if foot >= f.top || top < f.z - BELOW || (roof && foot >= f.z) {
                         continue;
                     }
                 }
