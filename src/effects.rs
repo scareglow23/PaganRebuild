@@ -342,6 +342,21 @@ impl Game {
                     w.points.insert(0, (it.x, it.y));
                     w.drops.insert(0, false);
                 }
+                // The player's click on a spot he cannot get to (in the
+                // lava): the way ends as near as it goes, right at the
+                // shore, and the last stride carried him on into the lava,
+                // where he stood and burnt. It ends a step short of that.
+                let n = w.points.len();
+                if pf.actor == AVATAR && pf.target == 0 && !pf.scripted && n >= 2 && !w.drops[n - 1] {
+                    let (ex, ey) = w.points[n - 1];
+                    let (px, py) = w.points[n - 2];
+                    let (sx, sy) = (ex - px, ey - py);
+                    let len = ((sx * sx + sy * sy) as f32).sqrt();
+                    if (tx - ex).abs().max((ty - ey).abs()) > reach.max(40) && len > 64.0 {
+                        let k = 32.0 / len;
+                        w.points[n - 1] = (ex - (sx as f32 * k) as i32, ey - (sy as f32 * k) as i32);
+                    }
+                }
                 self.paths.insert(pf.actor, w);
                 true
             }
@@ -415,7 +430,11 @@ impl Game {
                 let (sx, sy) = (wx - px, wy - py);
                 let len = ((sx * sx + sy * sy) as f32).sqrt().max(1.0);
                 let off = ((sx * dy - sy * dx) as f32).abs() / len;
-                if off <= 40.0 {
+                // (not close to the end of the way: there the line's
+                // direction carried him past the end to the side, by a
+                // shore into the lava, where he stood and burnt)
+                let at_end = pf.next as usize + 1 == path.len() && dx.abs().max(dy.abs()) <= 64;
+                if off <= 40.0 && !at_end {
                     keep_dir = Some(world_dir(sx, sy) as i32);
                 }
             }
