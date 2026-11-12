@@ -575,10 +575,33 @@ pub fn light_inside(map: &crate::map::MapData, map_no: usize, infos: &[crate::sh
 fn inside_house(map: &crate::map::MapData, infos: &[crate::shape::ShapeInfo], it: &crate::map::Item) -> bool {
     match wall_facing(it, infos) {
         Some(facing) => faces_room(map, infos, it, facing),
-        // a post or corner stone: both seen sides
-        None if is_post(it, infos) => faces_room(map, infos, it, (1, 0)) && faces_room(map, infos, it, (0, 1)),
+        // a post or corner stone: the sides seen (not those a wall goes on from)
+        None if is_post(it, infos) => {
+            let open: Vec<_> = [(1, 0), (0, 1)].into_iter().filter(|&side| !walled(map, infos, it, side)).collect();
+            if open.is_empty() {
+                under_roof(map, infos, it)
+            } else {
+                open.into_iter().all(|side| faces_room(map, infos, it, side))
+            }
+        }
         None => under_roof(map, infos, it),
     }
+}
+
+/// Does a wall or post go on right next to this side of a post (a post in
+/// the middle of a wall: that side is not seen)?
+fn walled(map: &crate::map::MapData, infos: &[crate::shape::ShapeInfo], it: &crate::map::Item, (dx, _): (i32, i32)) -> bool {
+    let Some(si) = infos.get(it.shape as usize) else { return false };
+    let b = crate::map::WorldBox::of(it, si);
+    // a thin box just beyond that side, a little shorter than it
+    let probe = if dx != 0 {
+        crate::map::WorldBox { x: b.x + 8, y: b.y - 4, z: it.z + 8, xd: 8, yd: (b.yd - 8).max(1), zd: 24 }
+    } else {
+        crate::map::WorldBox { x: b.x - 4, y: b.y + 8, z: it.z + 8, xd: (b.xd - 8).max(1), yd: 8, zd: 24 }
+    };
+    let nowhere = crate::map::WorldBox { x: 0, y: 0, z: -10000, xd: 0, yd: 0, zd: 0 };
+    let pi = map.position_info(&probe, &nowhere, infos, it.id);
+    !pi.valid && pi.blocker.and_then(|id| map.get(id)).is_some_and(|o| wall_facing(o, infos).is_some() || is_post(o, infos))
 }
 
 
