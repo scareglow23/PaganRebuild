@@ -940,12 +940,19 @@ impl Game {
             // (what is at each pixel is only known for the view as in the original)
             let ids: &[u32] = if angle == 0.0 { pixel_ids } else { &[] };
             // the things in the rooms of the house the Avatar is in
-            let rooms = match room_look {
-                Some(_) if angle == 0.0 => crate::lighting::rooms(&self.painted, map, *cur_map, infos, rooms_seen),
-                _ => Vec::new(),
+            // what is inside a house and what outside (lights do not
+            // shine from one to the other), only under the open sky
+            let (rooms, lights) = if angle == 0.0 && sky {
+                let rooms = crate::lighting::rooms(&self.painted, map, *cur_map, infos, rooms_seen);
+                let lights: Vec<crate::lighting::Light> = lights
+                    .iter()
+                    .map(|l| crate::lighting::Light { inside: crate::lighting::light_inside(map, *cur_map, infos, l.item, rooms_seen), ..*l })
+                    .collect();
+                (rooms, std::borrow::Cow::Owned(lights))
+            } else {
+                (Vec::new(), std::borrow::Cow::Borrowed(&lights[..]))
             };
-            let inside = room_look.filter(|_| !rooms.is_empty()).map(|l| (&rooms[..], l));
-            crate::lighting::apply(surf, lights, look, ids, &map.items, infos, inside);
+            crate::lighting::apply(surf, &lights[..], look, ids, &map.items, infos, &rooms, room_look.filter(|_| !rooms.is_empty()));
         }
 
         // the way to the place chosen (option "map with guide")

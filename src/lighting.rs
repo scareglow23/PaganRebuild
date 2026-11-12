@@ -10,6 +10,11 @@
 //! outside, as if a fire or a lamp burnt somewhere (many houses have none).
 //! What is seen of the outside keeps the light of outside.
 //!
+//! Lights inside a house (under a roof) light only what is inside, and
+//! lights outside only what is outside: a candle does not shine through
+//! the wall onto the street, a lamp on the wall not into the room. Walls
+//! themselves are lit from both sides (they belong to both).
+//!
 //! A light only falls on what is about as high as it, not on a floor or
 //! roof above it (the lamps in a house would light its roof). This is done
 //! on the finished picture of the world, so it works with the turned view
@@ -100,6 +105,7 @@ const MOST: f32 = 1.3;
 const ADDED: f32 = 1.0;
 
 /// A light on screen.
+#[derive(Clone, Copy)]
 pub struct Light {
     pub x: f32,
     pub y: f32,
@@ -112,6 +118,10 @@ pub struct Light {
     /// that height or higher is above the light: a ceiling, a roof).
     pub z: i32,
     pub top: i32,
+    /// The thing giving the light (index into the items).
+    pub item: usize,
+    /// Is it inside a house (under a roof)? None: not known.
+    pub inside: Option<bool>,
 }
 
 /// What kind of light a thing gives: (radius, colour, flickers).
@@ -230,10 +240,10 @@ impl Game {
             // light ends at the height of a room, not on the roof above)
             let top = it.z + if zd <= 8 { FLAT_REACH } else if flickers { zd.min(FIRE_REACH) } else { zd };
             if lamp_seen {
-                out.push(Light { x: sx, y: sy, radius: radius * (0.95 + 0.05 * strength), rgb: rgb.map(|c| c * strength), z, top });
+                out.push(Light { x: sx, y: sy, radius: radius * (0.95 + 0.05 * strength), rgb: rgb.map(|c| c * strength), z, top, item: i, inside: None });
             }
             if ground_seen {
-                out.push(Light { x: gx as f32, y: gy as f32, radius: ground_radius, rgb: rgb.map(|c| c * 0.9), z: ground, top });
+                out.push(Light { x: gx as f32, y: gy as f32, radius: ground_radius, rgb: rgb.map(|c| c * 0.9), z: ground, top, item: i, inside: None });
             }
         }
         out
@@ -305,10 +315,11 @@ fn is_lava(shape: u32) -> bool {
 /// for every pixel.
 const CELL: i32 = 4;
 
-/// The lights of one height, added up in the grid.
+/// The lights of one height (inside or outside), added up in the grid.
 struct Field {
     z: i32,
     top: i32,
+    inside: Option<bool>,
     /// The first point of the grid (in grid steps) and its size in points.
     gx0: i32,
     gy0: i32,
@@ -326,16 +337,16 @@ impl Field {
 
 /// The lights grouped by height, each group added up in its grid.
 fn fields(lights: &[Light], lamp: f32, w: i32, h: i32) -> Vec<Field> {
-    let mut groups: Vec<(i32, i32, Vec<&Light>)> = Vec::new();
+    let mut groups: Vec<(i32, i32, Option<bool>, Vec<&Light>)> = Vec::new();
     for l in lights {
-        match groups.iter_mut().find(|g| g.0 == l.z && g.1 == l.top) {
-            Some(g) => g.2.push(l),
-            None => groups.push((l.z, l.top, vec![l])),
+        match groups.iter_mut().find(|g| g.0 == l.z && g.1 == l.top && g.2 == l.inside) {
+            Some(g) => g.3.push(l),
+            None => groups.push((l.z, l.top, l.inside, vec![l])),
         }
     }
     groups
         .into_iter()
-        .filter_map(|(z, top, ls)| {
+        .filter_map(|(z, top, inside, ls)| {
             // the part of the picture the group reaches, in grid points
             let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
             for l in &ls {
@@ -382,7 +393,7 @@ fn fields(lights: &[Light], lamp: f32, w: i32, h: i32) -> Vec<Field> {
                     }
                 }
             });
-            Some(Field { z, top, gx0, gy0, gw, gh, values })
+            Some(Field { z, top, inside, gx0, gy0, gw, gh, values })
         })
         .collect()
 }
@@ -394,9 +405,11 @@ fn fields(lights: &[Light], lamp: f32, w: i32, h: i32) -> Vec<Field> {
 /// keep their own colours (lit by themselves and their neighbours, a
 /// stretch of lava turned a flat yellow).
 ///
-/// `inside`: the things (by index) standing in a room under a roof, and
-/// the look there (see the top of this file).
-pub fn apply(surf: &mut Surface, lights: &[Light], look: Look, ids: &[u32], items: &[crate::map::Item], infos: &[crate::shape::ShapeInfo], inside: Option<(&[bool], Look)>) {
+/// `rooms` (may be empty): for the things (by index), are they inside a
+/// house (`IN_HOUSE`, `OUTSIDE`, 0: not known); `inner`: the look of the
+/// rooms of the house the Avatar is in (see the top of this file).
+#[allow(clippy::too_many_arguments)]
+pub fn apply(surf: &mut Surface, lights: &[Light], look: Look, ids: &[u32], items: &[crate::map::Item], infos: &[crate::shape::ShapeInfo], rooms: &[u8], inner: Option<Look>) {
     let (w, h) = (surf.width, surf.height);
     // the dark keeps dark colours a little lighter than bright ones
     // (multiplying all alike made dark floors and carpets black): the
@@ -407,9 +420,9 @@ pub fn apply(surf: &mut Surface, lights: &[Light], look: Look, ids: &[u32], item
         })
     };
     let (dim_out, lamp_out) = (dims(look), look.lamp);
-    let (rooms, dim_in, lamp_in) = match inside {
-        Some((rooms, inner)) => (rooms, dims(inner), inner.lamp),
-        None => (&[][..], dim_out, lamp_out),
+    let (dim_in, lamp_in) = match inner {
+        Some(inner) => (dims(inner), inner.lamp),
+        None => (dim_out, lamp_out),
     };
     let fields = fields(lights, 1.0, w, h);
     let spans: Vec<_> = fields.iter().map(Field::pixels).collect();
@@ -436,7 +449,14 @@ pub fn apply(surf: &mut Surface, lights: &[Light], look: Look, ids: &[u32], item
             if thing.is_some_and(|it| light_of(it.shape, it.frame).is_some()) {
                 continue;
             }
-            let (dim, lamp) = if index.is_some_and(|i| rooms.get(i).copied().unwrap_or(false)) { (&dim_in, lamp_in) } else { (&dim_out, lamp_out) };
+            let room = index.and_then(|i| rooms.get(i).copied()).unwrap_or(0);
+            let (dim, lamp) = if room == IN_HOUSE && inner.is_some() { (&dim_in, lamp_in) } else { (&dim_out, lamp_out) };
+            // inside or outside (of a wall: the side seen)
+            let side = match room {
+                IN_HOUSE => Some(true),
+                OUTSIDE => Some(false),
+                _ => None,
+            };
             let si = thing.and_then(|it| infos.get(it.shape as usize));
             let height = thing.map(|it| (it.z, it.z + si.map_or(0, |si| si.z * 8)));
             let roof = si.is_some_and(|si| si.roof);
@@ -444,6 +464,12 @@ pub fn apply(surf: &mut Surface, lights: &[Light], look: Look, ids: &[u32], item
             for (f, &(x0, fy0, x1, fy1)) in fields.iter().zip(&spans) {
                 if x < x0 || y < fy0 || x >= x1 || y >= fy1 {
                     continue;
+                }
+                // not from inside a house out, or from outside in
+                if let (Some(a), Some(b)) = (f.inside, side) {
+                    if a != b {
+                        continue;
+                    }
                 }
                 // not on what stands above the light or lies far below it
                 // and a roof only from a light as high as it (the slopes of
@@ -485,43 +511,168 @@ pub fn apply(surf: &mut Surface, lights: &[Light], look: Look, ids: &[u32], item
 /// item id where the thing stood when looked at, and the answer.
 pub type RoomsSeen = (usize, HashMap<u16, ((i32, i32, i32), bool)>);
 
+/// In `rooms` of `apply`: a thing in a house, or outside.
+pub const IN_HOUSE: u8 = 2;
+pub const OUTSIDE: u8 = 1;
+
 /// For the things painted (by index into the items): does it stand in a
-/// room under a roof? The answers are kept (`seen`) while the thing stays
-/// where it is; at most `ROOM_CHECKS` new ones per picture, the others
-/// count as outside until their turn comes (a moment later).
-pub fn rooms(painted: &[crate::view::Painted], map: &crate::map::MapData, map_no: usize, infos: &[crate::shape::ShapeInfo], seen: &mut RoomsSeen) -> Vec<bool> {
-    const ROOM_CHECKS: usize = 400;
+/// room under a roof (`IN_HOUSE`, `OUTSIDE`)? The answers are kept
+/// (`seen`) while the thing stays where it is; at most `ROOM_CHECKS` new
+/// ones per picture, the others are not known (0) until their turn comes
+/// (a moment later).
+pub fn rooms(painted: &[crate::view::Painted], map: &crate::map::MapData, map_no: usize, infos: &[crate::shape::ShapeInfo], seen: &mut RoomsSeen) -> Vec<u8> {
+    const ROOM_CHECKS: usize = 600;
     if seen.0 != map_no {
         *seen = (map_no, HashMap::default());
     }
-    let mut out = vec![false; map.items.len()];
+    let mut out = vec![0u8; map.items.len()];
     let mut checks = 0;
     for p in painted {
         let Some(it) = map.items.get(p.index) else { continue };
         let at = (it.x, it.y, it.z);
         let known = seen.1.get(&it.id).filter(|(was, _)| *was == at).map(|&(_, inside)| inside);
         let inside = match known {
-            Some(inside) => inside,
+            Some(inside) => Some(inside),
             None if checks < ROOM_CHECKS => {
                 checks += 1;
-                let inside = under_roof(map, infos, it);
+                let inside = match wall_facing(it, infos) {
+                    Some(facing) => faces_room(map, infos, it, facing),
+                    // a post or corner stone: both seen sides
+                    None if is_post(it, infos) => faces_room(map, infos, it, (1, 0)) && faces_room(map, infos, it, (0, 1)),
+                    None => under_roof(map, infos, it),
+                };
                 seen.1.insert(it.id, (at, inside));
-                inside
+                Some(inside)
             }
-            None => false,
+            None => None,
         };
-        out[p.index] = inside;
+        out[p.index] = match inside {
+            Some(true) => IN_HOUSE,
+            Some(false) => OUTSIDE,
+            None => 0,
+        };
     }
     out
 }
 
+/// Is a light inside a house (as `rooms`, but always found out: there
+/// are only a few lights)?
+pub fn light_inside(map: &crate::map::MapData, map_no: usize, infos: &[crate::shape::ShapeInfo], item: usize, seen: &mut RoomsSeen) -> Option<bool> {
+    if seen.0 != map_no {
+        *seen = (map_no, HashMap::default());
+    }
+    let it = map.items.get(item)?;
+    let at = (it.x, it.y, it.z);
+    if let Some(&(was, inside)) = seen.1.get(&it.id) {
+        if was == at {
+            return Some(inside);
+        }
+    }
+    // hanging on a wall: on the side of the wall it is on
+    let inside = match on_wall(map, infos, it) {
+        Some((wall, facing)) => faces_room(map, infos, wall, facing),
+        None => around_under_roof(map, infos, it),
+    };
+    seen.1.insert(it.id, (at, inside));
+    Some(inside)
+}
+
+/// The wall a thing hangs on (right behind it, its seen side towards the
+/// thing), and the way that side faces.
+fn on_wall<'a>(map: &'a crate::map::MapData, infos: &[crate::shape::ShapeInfo], it: &crate::map::Item) -> Option<(&'a crate::map::Item, (i32, i32))> {
+    let si = infos.get(it.shape as usize)?;
+    let b = crate::map::WorldBox::of(it, si);
+    let (mx, my) = (b.x - b.xd / 2, b.y - b.yd / 2);
+    let nowhere = crate::map::WorldBox { x: 0, y: 0, z: -10000, xd: 0, yd: 0, zd: 0 };
+    for (dx, dy) in [(-1, 0), (0, -1)] {
+        let (cx, cy) = (mx + dx * (b.xd / 2 + 8), my + dy * (b.yd / 2 + 8));
+        let probe = crate::map::WorldBox { x: cx + 8, y: cy + 8, z: it.z, xd: 16, yd: 16, zd: 16 };
+        let pi = map.position_info(&probe, &nowhere, infos, it.id);
+        if pi.valid {
+            continue;
+        }
+        if let Some(wall) = pi.blocker.and_then(|id| map.get(id)) {
+            if wall_facing(wall, infos) == Some((-dx, -dy)) {
+                return Some((wall, (-dx, -dy)));
+            }
+        }
+    }
+    None
+}
+
+/// As `under_roof`, and around it as well, most of five points (above a
+/// fireplace the chimney goes through the roof; a lamp or wall under the
+/// eaves or a porch is still outside).
+fn around_under_roof(map: &crate::map::MapData, infos: &[crate::shape::ShapeInfo], it: &crate::map::Item) -> bool {
+    [(0, 0), (48, 0), (-48, 0), (0, 48), (0, -48)].iter().filter(|&&(dx, dy)| under_roof(map, infos, &crate::map::Item { x: it.x + dx, y: it.y + dy, ..*it })).count() >= 3
+}
+
+/// A wall (solid, tall, thin in x or y and long in the other; not a post):
+/// of it only the side towards the viewer is seen, the one facing +x or
+/// +y. Returns that direction, or None for anything else.
+fn wall_facing(it: &crate::map::Item, infos: &[crate::shape::ShapeInfo]) -> Option<(i32, i32)> {
+    let si = infos.get(it.shape as usize)?;
+    let (xd, yd, zd) = si.footpad(it.flags & crate::map::FLG_FLIPPED != 0);
+    if !si.solid || si.roof || zd < 32 || xd.min(yd) > 32 || xd.max(yd) <= 32 {
+        return None;
+    }
+    Some(if xd <= 32 { (1, 0) } else { (0, 1) })
+}
+
+/// A post or the corner stone of walls: solid, tall, small across.
+fn is_post(it: &crate::map::Item, infos: &[crate::shape::ShapeInfo]) -> bool {
+    infos.get(it.shape as usize).is_some_and(|si| {
+        let (xd, yd, zd) = si.footpad(it.flags & crate::map::FLG_FLIPPED != 0);
+        si.solid && !si.roof && zd >= 32 && xd <= 32 && yd <= 32
+    })
+}
+
+/// Does the seen side of a wall face a room? From just in front of it,
+/// going straight out and to both sides along it under the roof: a room
+/// if each way meets another wall before the roof ends (a porch or the
+/// eaves are open to one side: that is outside). Walls right next to it
+/// do not count (the stones of the same pillar, a fireplace in front).
+fn faces_room(map: &crate::map::MapData, infos: &[crate::shape::ShapeInfo], it: &crate::map::Item, (dx, dy): (i32, i32)) -> bool {
+    const STEP: i32 = 32;
+    const STEPS: i32 = 40;
+    let Some(si) = infos.get(it.shape as usize) else { return false };
+    let b = crate::map::WorldBox::of(it, si);
+    // the middle of the wall's foot, moved out to just in front of it
+    let (mx, my) = (b.x - b.xd / 2 + dx * (b.xd / 2 + 64), b.y - b.yd / 2 + dy * (b.yd / 2 + 64));
+    // a start nothing overlaps
+    let nowhere = crate::map::WorldBox { x: 0, y: 0, z: -10000, xd: 0, yd: 0, zd: 0 };
+    // how far to the next wall, None: out under the open sky
+    let closed = |(wx, wy): (i32, i32)| -> Option<i32> {
+        // open sky a few steps in a row (not just a chimney above)
+        let mut open = 0;
+        for k in 0..STEPS {
+            let (cx, cy) = (mx + wx * k * STEP, my + wy * k * STEP);
+            // wide across the way (not through a doorway)
+            let (hx, hy) = if wx != 0 { (16, 48) } else { (48, 16) };
+            let probe = crate::map::WorldBox { x: cx + hx, y: cy + hy, z: it.z + 8, xd: 2 * hx, yd: 2 * hy, zd: 24 };
+            let pi = map.position_info(&probe, &nowhere, infos, it.id);
+            if pi.roof_z.is_none() {
+                open += 1;
+                if open >= 5 {
+                    return None;
+                }
+            } else {
+                open = 0;
+            }
+            if k >= 2 && !pi.valid && pi.blocker.and_then(|id| map.get(id)).is_some_and(|o| wall_facing(o, infos).is_some() || is_post(o, infos)) {
+                return Some(k * STEP);
+            }
+        }
+        Some(STEPS * STEP)
+    };
+    closed((dx, dy)).is_some() && closed((dy, dx)).is_some() && closed((-dy, -dx)).is_some()
+}
+
 /// Is there a roof above the middle of a thing (as the test that hides
-/// the roofs while the Avatar is below one)? A roof itself is not under one.
+/// the roofs while the Avatar is below one)? (Also for a thing marked as a
+/// roof: many floors of houses are, as the ceiling of a room below.)
 fn under_roof(map: &crate::map::MapData, infos: &[crate::shape::ShapeInfo], it: &crate::map::Item) -> bool {
     let Some(si) = infos.get(it.shape as usize) else { return false };
-    if si.roof {
-        return false;
-    }
     let b = crate::map::WorldBox::of(it, si);
     let probe = crate::map::WorldBox { x: b.x - b.xd / 2 + 16, y: b.y - b.yd / 2 + 16, z: it.z, xd: 32, yd: 32, zd: 16 };
     map.position_info(&probe, &probe, infos, it.id).roof_z.is_some()
