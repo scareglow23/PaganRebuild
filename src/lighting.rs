@@ -124,6 +124,19 @@ pub struct Light {
     pub inside: Option<bool>,
 }
 
+/// A flame bolt (and the fireball 260): a hot core, yellow-white (`core`),
+/// in a deep orange glow that ends in red, not a wide even shine.
+const BOLT_EDGE: [f32; 3] = [1.15, 0.38, 0.1];
+
+/// The small hot core some fires have besides their glow (radius,
+/// colour), as a second light in the same place.
+fn core_of(shape: u32) -> Option<(f32, [f32; 3])> {
+    match shape {
+        260 | 261 => Some((26.0, [1.05, 0.6, 0.22])),
+        _ => None,
+    }
+}
+
 /// What kind of light a thing gives: (radius, colour, flickers).
 fn light_of(shape: u32, frame: u32) -> Option<(f32, [f32; 3], bool)> {
     const LAMP: [f32; 3] = [1.5, 1.25, 0.8];
@@ -155,7 +168,7 @@ fn light_of(shape: u32, frame: u32) -> Option<(f32, [f32; 3], bool)> {
         // (480 and 483 also burst out of lava all the time: not too far)
         480 | 483 | 660 => (100.0, FIRE, true),
         110 => (180.0, FIRE, true),
-        260 | 261 => (90.0, FIRE, true),
+        260 | 261 => (65.0, BOLT_EDGE, true),
         // explosions: a big one (0-19), a small one (20-34), the burst of a
         // flame bolt (40-65): flaring up and dying down over their frames
         578 => {
@@ -241,6 +254,9 @@ impl Game {
             let top = it.z + if zd <= 8 { FLAT_REACH } else if flickers { zd.min(FIRE_REACH) } else { zd };
             if lamp_seen {
                 out.push(Light { x: sx, y: sy, radius: radius * (0.95 + 0.05 * strength), rgb: rgb.map(|c| c * strength), z, top, item: i, inside: None });
+                if let Some((core_radius, core_rgb)) = core_of(it.shape) {
+                    out.push(Light { x: sx, y: sy, radius: core_radius * FURTHER, rgb: core_rgb.map(|c| c * strength), z, top, item: i, inside: None });
+                }
             }
             if ground_seen {
                 out.push(Light { x: gx as f32, y: gy as f32, radius: ground_radius, rgb: rgb.map(|c| c * 0.9), z: ground, top, item: i, inside: None });
