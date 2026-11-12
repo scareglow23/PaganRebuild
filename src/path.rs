@@ -57,9 +57,10 @@ enum Ends {
     Nearest,
     /// Nowhere: only a way that gets there.
     There,
-    /// At the nearest point with nothing overhead up to this height.
     /// At the nearest point with nothing overhead up to this height (the
-    /// first), and not lower than the second.
+    /// first), not higher than a step above it and not lower than the
+    /// second. (Not up on the floor above a spot clicked below: from there
+    /// it is no nearer.)
     OpenUpTo(i32, i32),
 }
 
@@ -211,7 +212,7 @@ fn search_on(map: &MapData, infos: &[ShapeInfo], actor: &Item, goal: (i32, i32),
     };
     // where a way that does not get there may end
     let end_ok = |p: (i32, i32, i32)| match partial {
-        Ends::OpenUpTo(level, lowest) => p.2 >= lowest && open_above_on(map, infos, actor, p, level),
+        Ends::OpenUpTo(level, lowest) => p.2 >= lowest && p.2 <= level + 8 && open_above_on(map, infos, actor, p, level),
         _ => true,
     };
     let mut open = BinaryHeap::from([(Reverse(estimate(start)), 0usize, 0i32)]);
