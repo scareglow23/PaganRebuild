@@ -835,6 +835,15 @@ impl Game {
         self.fade_ins.keys().filter_map(|&id| Some((self.map().index(id)?, self.fade_in_alpha(id)?))).collect()
     }
 
+    /// Where the view lies around the camera point `cam` in a picture of
+    /// `size` (for what is clicked); the test commands that play without
+    /// drawing set it so too, as a window would.
+    pub fn place_view(&mut self, cam: (i32, i32, i32), size: (i32, i32)) {
+        self.view_origin = view_origin(cam, size);
+        self.view_xf.cam = cam;
+        self.view_xf.size = size;
+    }
+
     /// Draws the view centred on the Avatar.
     pub fn draw(&mut self, surf: &mut Surface, opts: &mut ViewOptions, roofs_always: bool) {
         self.dress_avatar();
@@ -927,7 +936,7 @@ impl Game {
             turn.render(surf, &xf, &scene, shapes)
         };
         opts.hide = saved_hide;
-        self.view_origin = ((cam.x - cam.y) / 4 - surf.width / 2, (cam.x + cam.y) / 8 - cam.z - surf.height / 2);
+        self.view_origin = view_origin((cam.x, cam.y, cam.z), (surf.width, surf.height));
         self.view_xf = xf;
         // shadows (optional), under the open sky (not in a cellar or cave), in the view as in the original (not turned)
         if self.options.shadows && angle == 0.0 && sky {
@@ -1679,4 +1688,10 @@ pub fn roof_above(map: &MapData, infos: &[crate::shape::ShapeInfo], avatar: &Ite
     let (xd, yd) = infos.get(avatar.shape as usize).map_or((64, 64), |si| { let b = WorldBox::of(avatar, si); (b.xd, b.yd) });
     let probe = WorldBox { x: avatar.x - xd / 4, y: avatar.y - yd / 4, z: avatar.z, xd: xd / 2, yd: yd / 2, zd: 16 };
     map.position_info(&probe, &probe, infos, AVATAR).roof_z
+}
+
+/// The top left of the view on the screen, around the camera point `cam`
+/// in a picture of `size`.
+fn view_origin(cam: (i32, i32, i32), size: (i32, i32)) -> (i32, i32) {
+    ((cam.0 - cam.1) / 4 - size.0 / 2, (cam.0 + cam.1) / 8 - cam.2 - size.1 / 2)
 }

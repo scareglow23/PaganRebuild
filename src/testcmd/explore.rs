@@ -137,11 +137,7 @@ fn step(game: &mut Game, input: Option<MoveInput>, n: u32) {
         super::journey::tick(game, n);
         return;
     }
-    let cam = game.camera_position();
-    let (w, h) = game.view_size;
-    game.view_origin = ((cam.0 - cam.1) / 4 - w / 2, (cam.0 + cam.1) / 8 - cam.2 - h / 2);
-    game.view_xf.cam = cam;
-    game.view_xf.size = (w, h);
+    game.place_view(game.camera_position(), game.view_size);
     game.step(input);
 }
 

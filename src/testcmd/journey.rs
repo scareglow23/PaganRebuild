@@ -66,11 +66,7 @@ pub(super) fn tick(game: &mut Game, n: u32) {
     }
     // the view follows as in a window (without one nothing is drawn, and
     // an open container seemed out of the picture and closed at once)
-    let cam = game.camera_position();
-    let (w, h) = game.view_size;
-    game.view_origin = ((cam.0 - cam.1) / 4 - w / 2, (cam.0 + cam.1) / 8 - cam.2 - h / 2);
-    game.view_xf.cam = cam;
-    game.view_xf.size = (w, h);
+    game.place_view(game.camera_position(), game.view_size);
     game.step(None);
 }
 
