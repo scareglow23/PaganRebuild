@@ -1,6 +1,7 @@
 # Malchir draws a ring of fire round himself while he fights the Avatar.
 # With the option "avoid_flames" off he walks through them and burns
-# himself to death (40 hit points in a new game)
+# himself to death (40 hit points in a new game). The Avatar keeps to
+# his place, so the fight stays at the ring
 args: --map 14 --pos 7700,2400,8
-do: option:avoid_flames,off;flag:MalchirTest=6;flag:malchirMet=1;t70;barklog:300;vitals:250;t100;vitals:250;t100;vitals:250;t100;vitals:250;t100;vitals:250;t100;vitals:250;t100;vitals:250;t100;vitals:250;t100;vitals:250;t100;vitals:250;t100;vitals:250;t100;vitals:250;t100;vitals:250;t100;vitals:250;t100;vitals:250;t100;vitals:250;t100;vitals:250;t100;vitals:250;t100;vitals:250;fightstate:27
+do: option:avoid_flames,off;flag:MalchirTest=6;flag:malchirMet=1;t70;barklog:300;vitals:250;hold:7700,2400,8,100;vitals:250;hold:7700,2400,8,100;vitals:250;hold:7700,2400,8,100;vitals:250;hold:7700,2400,8,100;vitals:250;hold:7700,2400,8,100;vitals:250;hold:7700,2400,8,100;vitals:250;hold:7700,2400,8,100;vitals:250;hold:7700,2400,8,100;vitals:250;hold:7700,2400,8,100;vitals:250;hold:7700,2400,8,100;vitals:250;hold:7700,2400,8,100;vitals:250;hold:7700,2400,8,100;vitals:250;hold:7700,2400,8,100;vitals:250;hold:7700,2400,8,100;vitals:250;hold:7700,2400,8,100;vitals:250;hold:7700,2400,8,100;vitals:250;hold:7700,2400,8,100;vitals:250;hold:7700,2400,8,100;fightstate:27
 expect: in_combat false hp 0 dex

@@ -1,4 +1,4 @@
 # A ghoul rising from a grave (map 6, with the Avatar next to it) takes the Avatar as its target and fights (setTarget starts combat, as in ScummVM)
 args: --map 6 --pos 4800,22100,8
-do: t400;fightstate:62
+do: t100;fightstate:62
 expect: target 1 in_combat true
