@@ -855,6 +855,15 @@ impl Play {
         } else if right_pressed && game.ui.targeting.is_some() {
             game.target_picked(0);
             self.right_on_gump = true; // do not walk with this click
+        } else if right_pressed && modern && !game.fighting() && steered(window)
+            && !mouse_pos(window, MouseMode::Discard).is_some_and(|(x, y)| game.pick_gump(x as i32, y as i32).is_some())
+        {
+            // walking with the keys or the stick, the right button (LT on
+            // the pad) jumps the way he walks: the pointer may be anywhere
+            // then, and nothing under it is taken or looked at
+            game.jump(None, w, h);
+            self.right_on_gump = true;
+            self.right_press_at = None;
         } else if right_pressed {
             // a thing that can be picked up goes straight into the backpack:
             // modern controls with the right button, classic ones with shift
