@@ -297,7 +297,7 @@ fn cmd_underzoom(game: &mut Game, surf: &mut Surface, _opts: &mut ViewOptions, _
     let num = |s: &str| number(s, cmd);
     let pct = num(arg)?;
     let (w, h) = (surf.width * pct / 100, surf.height * pct / 100);
-    game.world_under_menu = (pct != 100).then_some(((w, h), pct as f32 / 100.0));
+    game.view.under_menu = (pct != 100).then_some(((w, h), pct as f32 / 100.0));
     Ok(Flow::Done)
 }
 

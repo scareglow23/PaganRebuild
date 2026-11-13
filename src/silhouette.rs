@@ -35,7 +35,7 @@ impl Game {
         if it.id != AVATAR || !it.in_world() || it.flags & crate::map::FLG_INVISIBLE != 0 {
             return 0;
         }
-        let Some(p) = self.painted.iter().find(|p| p.index == av).map(|p| crate::view::Painted { ..*p }) else { return 0 };
+        let Some(p) = self.view.painted.iter().find(|p| p.index == av).map(|p| crate::view::Painted { ..*p }) else { return 0 };
         let Some(shape) = self.data.shapes.original(p.shape) else { return 0 };
         let Some(f) = shape.frames.get(p.frame as usize) else { return 0 };
         let ids = self.drawn_ids();

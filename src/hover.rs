@@ -195,7 +195,7 @@ impl Game {
 
     /// Which item each pixel of the last picture shows (index + 1, 0 = none).
     pub(crate) fn drawn_ids(&self) -> &[u32] {
-        if self.view_turned() { self.turn.ids() } else { &self.pixel_ids }
+        if self.view_turned() { self.turn.ids() } else { &self.view.pixel_ids }
     }
 
     /// Lifts the pixels of the chosen items a part of the way to white.

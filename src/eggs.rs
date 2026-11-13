@@ -52,10 +52,10 @@ impl Game {
         let (x, y) = (x.div_euclid(CHUNK) * CHUNK + CHUNK / 2, y.div_euclid(CHUNK) * CHUNK + CHUNK / 2);
         let (mut dx, mut dy) = (x - centre.0, y - centre.1);
         // with the view turned, what is in view is turned as well
-        for _ in 0..self.view_xf.quarter() {
+        for _ in 0..self.view.xf.quarter() {
             (dx, dy) = (-dy, dx);
         }
-        ((dx - dy) / 4).abs() <= self.view_size.0 / 2 + 256 && ((dx + dy) / 8).abs() <= self.view_size.1 / 2 + 256
+        ((dx - dy) / 4).abs() <= self.view.size.0 / 2 + 256 && ((dx + dy) / 8).abs() <= self.view.size.1 / 2 + 256
     }
 
     /// Finds the items that came into or dropped out of the fast area and
@@ -81,7 +81,7 @@ impl Game {
         }
 
         // (and what is in a chunk whose middle is that near)
-        let reach = 2 * (self.view_size.0 / 2 + 256) + 4 * (self.view_size.1 / 2 + 256) + 512;
+        let reach = 2 * (self.view.size.0 / 2 + 256) + 4 * (self.view.size.1 / 2 + 256) + 512;
         let mut entered = Vec::new();
         for idx in self.map().items_near(av.0, av.1, reach) {
             let it = &self.map().items[idx];
@@ -306,7 +306,7 @@ impl Game {
             }
             self.cur_map = map;
             // the last frame showed the old map: its item indices mean nothing here
-            self.painted.clear();
+            self.view.painted.clear();
             self.map_mut().add(Item { parent: IN_WORLD, mapnum: map as u16, fast: false, ..old });
             let mut new_ids = crate::hash::HashMap::from_iter([(AVATAR, AVATAR)]);
             for it in carried {
@@ -328,9 +328,9 @@ impl Game {
             // and is there at once: the gliding camera would otherwise slide
             // over from where it was on the old map (if that is near), and
             // people would glide from their last steps over there
-            self.cam_smooth = None;
-            self.cam_vel = (0.0, 0.0, 0.0);
-            self.lerps.clear();
+            self.view.cam_smooth = None;
+            self.view.cam_vel = (0.0, 0.0, 0.0);
+            self.view.lerps.clear();
             self.cache_in();
             if let Err(err) = self.save_to_in_background(crate::savegame::AUTO_SLOT) {
                 eprintln!("autosave: {err}");
@@ -428,7 +428,7 @@ impl Game {
         let (cx, cy, cz) = self.camera_position();
         let sx = (x - y) / 4 - (cx - cy) / 4;
         let sy = (x + y) / 8 - z - ((cx + cy) / 8 - cz);
-        let (w, h) = self.view_size;
+        let (w, h) = self.view.size;
         sx.abs() <= w / 2 + 64 && sy >= -h / 2 - 16 && sy <= h / 2 + 128
     }
 

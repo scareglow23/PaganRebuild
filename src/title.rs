@@ -351,7 +351,7 @@ impl Game {
             }
             Some(Title::Credits { lines, start }) => {
                 let height = lines.len() as i32 * 14;
-                start.elapsed().as_secs_f32() * ROLL_SPEED > (height + self.view_size.1 + 20) as f32
+                start.elapsed().as_secs_f32() * ROLL_SPEED > (height + self.view.size.1 + 20) as f32
             }
             _ => false,
         };
@@ -420,7 +420,7 @@ impl Game {
                     font.draw(surf, hint, x, by + 110, &self.data.pal);
                 }
                 // the name in the brighter font, with a cursor that blinks
-                let cursor = if (self.blink_start.elapsed().as_millis() / 400).is_multiple_of(2) { "_" } else { "" };
+                let cursor = if (self.view.blink_start.elapsed().as_millis() / 400).is_multiple_of(2) { "_" } else { "" };
                 if let Some(font) = self.data.font_or_plain(NAME_FONT) {
                     font.draw(surf, &format!("{text}{cursor}"), x, by + 50, &self.data.pal);
                 }

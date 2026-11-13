@@ -128,7 +128,7 @@ impl Game {
     fn add_passer(&mut self) {
         let av = self.avatar();
         let shape = SHAPES[(self.rng.next() % SHAPES.len() as u32) as usize];
-        let (vw, vh) = (self.view_size.0 / 2, self.view_size.1 / 2);
+        let (vw, vh) = (self.view.size.0 / 2, self.view.size.1 / 2);
         for _ in 0..12 {
             // a point on the screen around the view, then in the world
             let side = self.rng.next() % 4;

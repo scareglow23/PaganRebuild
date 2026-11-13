@@ -94,8 +94,8 @@ pub fn run_headless(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions,
     if std::env::var_os("PAGAN_XBR").is_some() {
         // the picture smoothed to twice its size, as the option shows it
         let mut big = Vec::new();
-        let sharp: &[bool] = if game.sharp.len() == surf.pixels.len() { &game.sharp } else { &[] };
-        println!("smoothing: {} pixels kept sharp (mask {} for {})", sharp.iter().filter(|&&b| b).count(), game.sharp.len(), surf.pixels.len());
+        let sharp: &[bool] = if game.view.sharp.len() == surf.pixels.len() { &game.view.sharp } else { &[] };
+        println!("smoothing: {} pixels kept sharp (mask {} for {})", sharp.iter().filter(|&&b| b).count(), game.view.sharp.len(), surf.pixels.len());
         if std::env::var_os("PAGAN_SHOWSHARP").is_some() {
             let marked: Vec<usize> = sharp.iter().enumerate().filter(|(_, &b)| b).map(|(i, _)| i).collect();
             for i in marked {

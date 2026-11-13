@@ -378,7 +378,7 @@ fn run(args: Args) -> Result<(), Box<dyn Error>> {
     }
     let mut opts = ViewOptions::default();
     let mut surf = Surface::new(args.size.0, args.size.1);
-    game.view_size = args.size;
+    game.view.size = args.size;
     if let Some(path) = &args.screenshot {
         return Ok(testcmd::run_headless(&mut game, &mut surf, &mut opts, path, &args.commands)?);
     }

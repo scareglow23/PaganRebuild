@@ -108,7 +108,7 @@ impl Game {
         }
         let below_top = below.z + self.data.infos.get(below.shape as usize)?.footpad(false).2;
         let (cx, cy, _) = self.camera_position();
-        let reach = 4 * (self.view_size.0 + self.view_size.1);
+        let reach = 4 * (self.view.size.0 + self.view.size.1);
         self.map().items.iter()
             .filter(|t| t.shape == PATH_TILE && t.in_world() && t.z > below_top && (t.x - cx).abs() < reach && (t.y - cy).abs() < reach)
             .find(|t| {
@@ -133,7 +133,7 @@ impl Game {
 
     /// Shades the shown tiles of the path.
     pub fn draw_revealed_path(&mut self, surf: &mut Surface) {
-        if self.view_turned() || surf.width != self.view_size.0 || surf.height != self.view_size.1 {
+        if self.view_turned() || surf.width != self.view.size.0 || surf.height != self.view.size.1 {
             return;
         }
         let Some(shown) = self.revealed_path.get(&self.cur_map) else { return };

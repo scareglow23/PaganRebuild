@@ -900,23 +900,23 @@ fn fill_gaps(surf: &mut Surface, ids: &[u32]) {
 impl crate::game::Game {
     /// World position to position in the view, as last drawn.
     pub fn to_screen(&self, x: i32, y: i32, z: i32) -> (i32, i32) {
-        self.view_xf.to_screen(x, y, z)
+        self.view.xf.to_screen(x, y, z)
     }
 
     /// The world position (x, y) at height `z` under a view position.
     pub fn to_world(&self, sx: i32, sy: i32, z: i32) -> (i32, i32) {
-        self.view_xf.to_world(sx, self.unflip_y(sy), z)
+        self.view.xf.to_world(sx, self.unflip_y(sy), z)
     }
 
     /// Is the view turned away from the original side?
     pub fn view_turned(&self) -> bool {
-        self.view_xf.angle != 0.0
+        self.view.xf.angle != 0.0
     }
 
     /// A direction meant on screen (0 = up, clockwise) as a direction in
     /// the world, with the view turned.
     pub fn unturn_dir(&self, dir: u8) -> u8 {
-        (dir as i32 - 2 * self.view_xf.quarter()).rem_euclid(8) as u8
+        (dir as i32 - 2 * self.view.xf.quarter()).rem_euclid(8) as u8
     }
 
     /// Turns the view by a quarter (+1 / -1), if that is switched on.

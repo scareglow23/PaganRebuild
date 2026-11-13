@@ -1097,6 +1097,7 @@ impl Game {
         // pixels of its own in the picture (the per-pixel id buffer).
         const MIN_SEEN: u32 = 6;
         let fighters: Vec<usize> = self
+            .view
             .painted
             .iter()
             .map(|p| p.index)

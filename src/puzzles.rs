@@ -214,7 +214,7 @@ impl Game {
 
     /// The glow on the spots whose puzzle the Avatar carries the piece for.
     pub fn draw_puzzle_spots(&mut self, surf: &mut Surface) {
-        if !self.options.puzzle_spots || self.view_turned() || surf.width != self.view_size.0 || surf.height != self.view_size.1 {
+        if !self.options.puzzle_spots || self.view_turned() || surf.width != self.view.size.0 || surf.height != self.view.size.1 {
             return;
         }
         let ids = self.drawn_ids();

@@ -231,7 +231,7 @@ impl Bot {
                 self.plan = Plan::Walk { dir, run, left: 10 + self.rng.below(80) };
             }
             55..=64 => {
-                let (w, h) = game.view_size;
+                let (w, h) = game.view.size;
                 let p = (self.rng.below(w.max(1) as u32) as i32, self.rng.below(h.max(1) as u32) as i32);
                 game.jump(Some(p), w, h);
                 self.plan = Plan::Wait(20);
@@ -240,7 +240,7 @@ impl Bot {
                 // use something on screen, as a player does with the mouse:
                 // only what is drawn on top at the point clicked
                 game.draw(surf, opts, false);
-                let (w, h) = game.view_size;
+                let (w, h) = game.view.size;
                 for _ in 0..80 {
                     let (x, y) = (self.rng.below(w.max(1) as u32) as i32, self.rng.below(h.max(1) as u32) as i32);
                     let Some(id) = game.pick(x, y).filter(|&id| id != AVATAR && game.usable(id)) else { continue };

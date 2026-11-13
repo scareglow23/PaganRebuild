@@ -123,7 +123,7 @@ impl Game {
                     if it.in_world() {
                         // out of the picture (the fast area reaches well beyond it)
                         let (sx, sy) = self.to_screen(it.x, it.y, it.z);
-                        let (w, h) = self.view_size;
+                        let (w, h) = self.view.size;
                         let off = sx < -GUMP_MARGIN || sy < -GUMP_MARGIN || sx > w + GUMP_MARGIN || sy > h + GUMP_MARGIN;
                         return !it.fast || off;
                     }

@@ -126,7 +126,7 @@ impl Game {
     /// height, so that a wide view does not stretch them.
     fn pointer_direction(&self, at: (i32, i32)) -> (usize, usize) {
         let av = self.avatar();
-        let h = self.view_size.1.max(1) as f32;
+        let h = self.view.size.1.max(1) as f32;
         let (ax, ay) = self.to_screen(av.x, av.y, av.z);
         let dx = (at.0 - ax) as f32;
         let dy = (ay as f32 + h * 14.0 / 200.0) - at.1 as f32; // up is positive

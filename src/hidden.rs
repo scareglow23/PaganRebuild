@@ -58,7 +58,7 @@ impl Figure {
 const MARGIN: i32 = 2;
 
 impl Game {
-    /// The figure of the painted entry `n` (place in `self.painted`).
+    /// The figure of the painted entry `n` (place in `self.view.painted`).
     fn figure(&mut self, n: usize) -> Option<Figure> {
         self.figure_near(n, None)
     }
@@ -66,7 +66,7 @@ impl Game {
     /// The same, but only if its frame reaches within `r` of the point
     /// (`near`: x, y, r), so that most entries are passed over quickly.
     fn figure_near(&mut self, n: usize, near: Option<(i32, i32, i32)>) -> Option<Figure> {
-        let p = self.painted.get(n)?;
+        let p = self.view.painted.get(n)?;
         let (shape, frame, flipped, sx, sy) = (p.shape, p.frame, p.flipped, p.sx, p.sy);
         let shape = self.data.shapes.original(shape)?;
         let f = shape.frames.get(frame as usize)?;
@@ -91,14 +91,14 @@ impl Game {
     /// Is the painted entry `n` a key that is mostly
     /// hidden? Gives its figure and the screen pixels of it that are hidden.
     fn hidden_thing(&mut self, n: usize) -> Option<(Figure, Vec<(i32, i32)>)> {
-        let index = self.painted.get(n)?.index;
+        let index = self.view.painted.get(n)?.index;
         let it = self.map().items.get(index).copied()?;
         if it.id == 0 || !it.in_world() || it.is_actor() || it.flags & crate::map::FLG_INVISIBLE != 0 || it.shape != KEY || !self.portable(it.id) {
             return None;
         }
         let fig = self.figure(n)?;
         let ids = self.drawn_ids();
-        let (w, h) = (self.view_size.0, self.view_size.1);
+        let (w, h) = (self.view.size.0, self.view.size.1);
         if ids.len() != (w * h) as usize {
             return None;
         }
@@ -133,9 +133,9 @@ impl Game {
         let y = self.unflip_y(y);
         // the entries drawn at this pixel, the topmost first
         let mut first = None;
-        for n in (0..self.painted.len()).rev() {
+        for n in (0..self.view.painted.len()).rev() {
             let Some(fig) = self.figure_near(n, Some((x, y, MARGIN))) else { continue };
-            let id =self.map().items.get(self.painted[n].index).map_or(0, |it| it.id);
+            let id =self.map().items.get(self.view.painted[n].index).map_or(0, |it| it.id);
             let Some(top_size) = first else {
                 if id == top_id && fig.covers(x, y) {
                     first = Some(fig.body.iter().filter(|&&b| b).count());
@@ -154,11 +154,11 @@ impl Game {
 
     /// Draws the outlines of the hidden keys where they are hidden.
     pub fn draw_hidden_things(&mut self, surf: &mut Surface) {
-        if self.view_turned() || surf.width != self.view_size.0 || surf.height != self.view_size.1 {
+        if self.view_turned() || surf.width != self.view.size.0 || surf.height != self.view.size.1 {
             return;
         }
-        for n in 0..self.painted.len() {
-            let index = self.painted[n].index;
+        for n in 0..self.view.painted.len() {
+            let index = self.view.painted[n].index;
             let Some(it) = self.map().items.get(index).copied() else { continue };
             // only within reach: no peeking into houses through roofs and walls
             let wanted = self.can_drag(it.id);

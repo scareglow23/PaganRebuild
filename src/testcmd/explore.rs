@@ -137,7 +137,7 @@ fn step(game: &mut Game, input: Option<MoveInput>, n: u32) {
         super::journey::tick(game, n);
         return;
     }
-    game.place_view(game.camera_position(), game.view_size);
+    game.place_view(game.camera_position(), game.view.size);
     game.step(input);
 }
 
@@ -182,7 +182,7 @@ impl Explorer {
     /// over in a grid as the eye goes over the picture.
     fn on_screen(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions) -> Vec<u16> {
         game.draw(surf, opts, false);
-        let (w, h) = game.view_size;
+        let (w, h) = game.view.size;
         let mut seen: Vec<u16> = Vec::new();
         for y in (LOOK_STEP / 2..h).step_by(LOOK_STEP as usize) {
             for x in (LOOK_STEP / 2..w).step_by(LOOK_STEP as usize) {
@@ -292,7 +292,7 @@ impl Explorer {
         }
         // nothing new on the screen: a click on ground not stood on yet
         // (the farther, the better: he wants to see what is beyond)
-        let (w, h) = game.view_size;
+        let (w, h) = game.view.size;
         // (after clicks that found no way: close by, as a player tries)
         if self.walk_fails >= 2 * WALK_FAILS {
             let dir = self.rng.below(8) as u8;

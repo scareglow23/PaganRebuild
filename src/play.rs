@@ -400,13 +400,13 @@ impl Play {
         let pct = if full_size { 100 } else { zoom };
         let want = (self.base_size.0 * pct / 100, self.base_size.1 * pct / 100);
         // the world behind a menu keeps its zoom (drawn apart and scaled)
-        self.game.world_under_menu = (full_size && zoom != 100)
+        self.game.view.under_menu = (full_size && zoom != 100)
             .then(|| ((self.base_size.0 * zoom / 100, self.base_size.1 * zoom / 100), zoom as f32 / 100.0));
         if (self.surf.width, self.surf.height) != want {
             self.surf = Surface::new(want.0, want.1);
             self.shown = Surface::new(want.0, want.1);
-            self.game.view_size = want;
-            self.game.view_zoom = pct as f32 / 100.0;
+            self.game.view.size = want;
+            self.game.view.zoom = pct as f32 / 100.0;
             MOUSE_SCALE.store((pct as f32 / 100.0).to_bits(), std::sync::atomic::Ordering::Relaxed);
             // the kept pictures have the old size
             self.recent.clear();
@@ -509,7 +509,7 @@ impl Play {
     /// A new game: everything is read afresh.
     fn restart(&mut self) -> Result<(), Box<dyn Error>> {
         self.game = new_game(&self.args)?;
-        self.game.view_size = (self.surf.width, self.surf.height);
+        self.game.view.size = (self.surf.width, self.surf.height);
         if self.with_title {
             // a new game begins with the name
             self.game.started = false;
@@ -1274,7 +1274,7 @@ impl Play {
             // zoomed out) are kept, to be written out with F3
             let note = format!(
                 "time {} ms tick {} map {} avatar {},{},{} view {},{} roofs hidden from {:?} pointer on {:?} controls {}",
-                self.started.elapsed().as_millis(), game.tick, game.cur_map, a.x, a.y, a.z, game.view_origin.0, game.view_origin.1, self.opts.z_limit, game.ui.hover,
+                self.started.elapsed().as_millis(), game.tick, game.cur_map, a.x, a.y, a.z, game.view.origin.0, game.view.origin.1, self.opts.z_limit, game.ui.hover,
                 if game.options.modern_controls { "modern" } else { "classic" }
             );
             // (at most about 300 MB: fewer pictures when zoomed out; the

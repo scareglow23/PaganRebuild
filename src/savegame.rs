@@ -439,9 +439,9 @@ impl Game {
         // everything that only describes the moment of drawing starts fresh
         self.fast_items = self.map().items.iter().enumerate().filter(|(_, it)| it.fast && !it.gone).map(|(i, _)| i).collect();
         self.inputs.clear();
-        self.lerps.clear();
-        self.cam_smooth = None;
-        self.painted.clear();
+        self.view.lerps.clear();
+        self.view.cam_smooth = None;
+        self.view.painted.clear();
         self.ui.drag = None;
         self.fade = None;
         self.avatar_died = None;

@@ -66,7 +66,7 @@ pub(super) fn tick(game: &mut Game, n: u32) {
     }
     // the view follows as in a window (without one nothing is drawn, and
     // an open container seemed out of the picture and closed at once)
-    game.place_view(game.camera_position(), game.view_size);
+    game.place_view(game.camera_position(), game.view.size);
     game.step(None);
 }
 
@@ -778,7 +778,7 @@ pub(super) fn run(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _
             wait_for(game, "free", STEP_TICKS, cmd)?;
             game.draw(surf, opts, false);
             let p = game.to_screen(x, y, z);
-            let (w, h) = game.view_size;
+            let (w, h) = game.view.size;
             if std::env::var_os("PAGAN_JOURNEY").is_some() {
                 eprintln!("hop: pointer {p:?} ground {:?}", game.ground_at(p.0, p.1));
             }
