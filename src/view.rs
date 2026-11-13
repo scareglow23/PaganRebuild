@@ -122,10 +122,10 @@ pub struct ViewOptions {
     /// Items drawn see-through (index into the items, strength 0..=256):
     /// creatures fading in.
     pub fading: Vec<(usize, u32)>,
-    /// The figure climbing onto a ledge (index into the items) and the
-    /// direction it climbs in (0 = north, clockwise): it is seen in front
-    /// of the ledge (see `climbed_ledge`).
-    pub climbing: Option<(usize, u8)>,
+    /// The figure climbing onto a ledge (index into the items), the
+    /// direction it climbs in (0 = north, clockwise) and the height it
+    /// climbs from: it is seen in front of the ledge (see `climbed_ledge`).
+    pub climbing: Option<(usize, u8, i32)>,
 }
 
 /// An item as it was drawn, for finding what is under the mouse pointer.
@@ -165,6 +165,7 @@ pub fn render(surf: &mut Surface, cam: &Camera, items: &[Item], infos: &[ShapeIn
     // Shapes reach at most a few hundred pixels from their origin.
     const MARGIN: i32 = 512;
     let mut sorter = Sorter::new(cam_sx, cam_sy, surf.width, surf.height);
+    sorter.climbing = opts.climbing.map(|(figure, _, from)| (figure, from));
     for (id, it) in items.iter().enumerate() {
         if !it.in_world() || (opts.hide != 0 && it.id == opts.hide) {
             continue;
@@ -226,7 +227,7 @@ pub fn render(surf: &mut Surface, cam: &Camera, items: &[Item], infos: &[ShapeIn
         .collect();
     paint_all(surf, ids, &jobs, pal);
     drop(jobs);
-    if let Some((figure, dir)) = opts.climbing {
+    if let Some((figure, dir, _)) = opts.climbing {
         paint_climber(surf, ids, items, infos, shapes, pal, overlay, (cam_sx, cam_sy), figure, dir);
     }
     order.iter().map(|si| Painted { index: si.id, sx: si.sx, sy: si.sy, shape: si.shape, frame: si.frame, flipped: si.flipped }).collect()

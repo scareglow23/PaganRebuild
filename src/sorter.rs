@@ -319,6 +319,9 @@ pub struct Sorter {
     grid_h: i32,
     /// Per item: the last new item that looked at it (to take each once).
     seen: Vec<usize>,
+    /// The figure climbing onto a ledge (index in the caller's list) and
+    /// the height it climbs from.
+    pub climbing: Option<(usize, i32)>,
 }
 
 impl Sorter {
@@ -335,6 +338,7 @@ impl Sorter {
             grid_w,
             grid_h,
             seen: Vec::new(),
+            climbing: None,
         }
     }
 
@@ -390,6 +394,20 @@ impl Sorter {
             standing: info.creature && !info.lies_in(frame),
             ..Default::default()
         };
+
+        // A figure pulling itself up onto a ledge is put in the order as
+        // if it still stood where it climbs from (it is drawn where it is):
+        // its box reaching over the ledge's height closed circles with
+        // what is around the ledge (the roof before him, its edge beside
+        // him, the roof before), and then the roof before him was painted
+        // under the wall and the candlestick inside. Once his feet are as
+        // high as his head was, he is up and in the order as he stands.
+        if let Some((_, from)) = self.climbing.filter(|c| c.0 == id) {
+            let height = si.z_top - si.z;
+            if si.z > from && si.z < from + height {
+                (si.z, si.z_top) = (from, from + height);
+            }
+        }
 
         let left = if flipped { si.sx + dims.xoff - dims.width } else { si.sx - dims.xoff };
         let top = si.sy - dims.yoff;

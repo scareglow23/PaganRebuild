@@ -157,6 +157,11 @@ impl Mover {
         self.falling.is_some() || self.playing.as_ref().is_some_and(|p| p.id != STAND && p.id != self.stand_anim)
     }
 
+    /// Where the actor stood when its current animation began.
+    pub fn anim_start(&self) -> Option<(i32, i32, i32)> {
+        self.playing.as_ref().map(|p| p.start)
+    }
+
     pub fn last_anim(&self) -> u32 {
         self.playing.as_ref().map_or(self.last_anim, |p| p.id)
     }

@@ -862,8 +862,9 @@ impl Game {
         // creatures from monster eggs in sight fade in
         opts.fading = self.fading_items();
         // the Avatar climbing onto a ledge is painted in front of it
-        let climbing = self.actors.get(&AVATAR).filter(|m| m.busy() && (crate::anim::CLIMB_FIRST..=crate::anim::CLIMB_LAST).contains(&m.last_anim())).map(|m| m.dir);
-        opts.climbing = climbing.and_then(|dir| Some((self.map().index(AVATAR)?, dir)));
+        let climbing = self.actors.get(&AVATAR).filter(|m| m.busy() && (crate::anim::CLIMB_FIRST..=crate::anim::CLIMB_LAST).contains(&m.last_anim()));
+        let climbing = climbing.map(|m| (m.dir, m.anim_start().map_or(avatar.z, |s| s.2)));
+        opts.climbing = climbing.and_then(|(dir, from)| Some((self.map().index(AVATAR)?, dir, from)));
         let Game { data: crate::gamedata::GameData { shapes, infos, pal, .. }, maps, cur_map, turn, view: ViewState { pixel_ids, rooms_seen, .. }, .. } = self;
         let map = &maps[cur_map];
 
