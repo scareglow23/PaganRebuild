@@ -279,8 +279,11 @@ mod tests {
     #[test]
     fn every_flag_is_known() {
         let Some(usecode) = crate::usecode::for_tests() else { return };
-        for q in QUESTS {
-            for cond in q.stages.iter().map(|s| s.when).chain([q.done]).filter(|c| !c.is_empty()) {
+        // (the conditions of the puzzle spots are read the same way)
+        let spots = crate::puzzles::SPOTS.iter().flat_map(|s| [s.glows_while, s.shown_while]);
+        let quests = QUESTS.iter().flat_map(|q| q.stages.iter().map(|s| s.when).chain([q.done]));
+        {
+            for cond in quests.chain(spots).filter(|c| !c.is_empty()) {
                 for name in cond.split(['|', '&']).map(|t| t.trim().trim_start_matches('!').trim()) {
                     let name = name.split('=').next().unwrap().trim();
                     if name.starts_with("has:") || name.starts_with("dead:") {

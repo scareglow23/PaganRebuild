@@ -50,7 +50,6 @@ fn pool() -> &'static Pool {
     })
 }
 
-/// Does part `i` of a job and counts it as finished.
 /// Waits for a part of a job that nobody works on yet and takes it.
 fn next_part(pool: &Pool) -> (Job, usize) {
     let mut s = pool.state.lock().unwrap();
@@ -63,6 +62,7 @@ fn next_part(pool: &Pool) -> (Job, usize) {
     }
 }
 
+/// Does part `i` of a job and counts it as finished.
 fn finish(pool: &Pool, job: Job, i: usize) {
     // SAFETY: see `Job`
     let ok = catch_unwind(AssertUnwindSafe(|| unsafe { (*job.0)(i) })).is_ok();
