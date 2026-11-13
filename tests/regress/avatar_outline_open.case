@@ -1,5 +1,5 @@
 # Option "outline when hidden": in an open corridor nothing stands in front of
-# the Avatar, so no outline is drawn
+# the Avatar, so no outline is drawn, however long he stays there
 args: --map 50 --pos 18226,5438,48
-do: option:map_fade,off;option:avatar_outline,on;t5;outline
+do: option:map_fade,off;option:avatar_outline,on;t5;pickat:0,0;t20;outline
 expect: outline: 0 pixels

@@ -99,6 +99,8 @@ pub struct ViewState {
     /// The item drawn at every pixel of the last picture (original view;
     /// index + 1, 0 where nothing is).
     pub(crate) pixel_ids: Vec<u32>,
+    /// How strongly the Avatar's outline shows (silhouette.rs).
+    pub(crate) outline: crate::silhouette::OutlineFade,
 }
 
 impl ViewState {
@@ -121,6 +123,7 @@ impl ViewState {
             origin: (0, 0),
             xf: crate::turnview::Xform { cam: (0, 0, 0), angle: 0.0, size: (640, 400) },
             pixel_ids: Vec::new(),
+            outline: Default::default(),
         }
     }
 }
