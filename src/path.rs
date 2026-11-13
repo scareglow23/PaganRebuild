@@ -118,7 +118,7 @@ impl Game {
 
     fn timed_search(&self, actor: &Item, goal: (i32, i32), may_drop: bool, partial: Ends, near: impl Fn(&Item) -> bool) -> Option<(Vec<(i32, i32)>, Vec<bool>)> {
         // PAGAN_PATHTIME=1: how long each search takes
-        if std::env::var_os("PAGAN_PATHTIME").is_none() {
+        if !crate::debug::env().path_time {
             return self.search_path(actor, goal, may_drop, partial, near);
         }
         let start = std::time::Instant::now();
@@ -430,7 +430,7 @@ impl Game {
             let id = self.sched_next;
             self.sched_next = if id >= 255 { 0 } else { id + 1 };
             // the Avatar has one too (it switches the weather effects)
-            if self.actor_anywhere(id).is_none() || !self.npc_stats.contains_key(&id) {
+            if self.actor_anywhere(id).is_none() || !self.people.npc_stats.contains_key(&id) {
                 return;
             }
             if self.state(id).dead || self.state(id).in_combat {
@@ -477,5 +477,137 @@ impl Game {
         self.add_native(Kind::Pathfind(pf), l.actor, crate::effects::PROC_WALK);
         l.wait = 30 * (4 + (self.rng.next() % 4) as i32);
         false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const FIGURE: u32 = 0;
+    const FLOOR: u32 = 1;
+    const BLOCK: u32 = 2;
+
+    /// The kinds of things of a small made-up world: a figure, a floor
+    /// tile (128 x 128, flat) and a block of wall as large and 40 high.
+    fn infos() -> Vec<ShapeInfo> {
+        vec![
+            ShapeInfo { x: 2, y: 2, z: 5, ..Default::default() },
+            ShapeInfo { fixed: true, solid: true, land: true, x: 4, y: 4, z: 0, ..Default::default() },
+            ShapeInfo { fixed: true, solid: true, x: 4, y: 4, z: 5, ..Default::default() },
+        ]
+    }
+
+    /// A map with floor on the given squares (column, row; each 128 wide)
+    /// and blocks of wall standing on some of them.
+    fn world(floor: impl Fn(i32, i32) -> bool, blocks: &[(i32, i32)]) -> MapData {
+        let globs = crate::flex::Flex::from_bytes(vec![0; 0x80]).unwrap();
+        let mut map = MapData::build(&[], &[], &globs, &[]);
+        for col in 0..8 {
+            for row in 0..8 {
+                if floor(col, row) {
+                    map.add(Item { shape: FLOOR, x: (col + 1) * 128, y: (row + 1) * 128, z: 0, ..Item::default() });
+                }
+            }
+        }
+        for &(col, row) in blocks {
+            map.add(Item { shape: BLOCK, x: (col + 1) * 128, y: (row + 1) * 128, z: 0, ..Item::default() });
+        }
+        map
+    }
+
+    fn figure(x: i32, y: i32) -> Item {
+        Item { shape: FIGURE, x, y, z: 0, id: 1, npc: 1, ..Item::default() }
+    }
+
+    /// The way of the figure from its place to `goal`: its points, and
+    /// whether it gets there.
+    fn way(map: &MapData, from: (i32, i32), goal: (i32, i32)) -> Option<(Vec<(i32, i32, i32)>, bool)> {
+        let near = |it: &Item| (it.x - goal.0).abs() <= STEP && (it.y - goal.1).abs() <= STEP;
+        long_way(map, &infos(), &figure(from.0, from.1), goal, near, 4000, 1)
+    }
+
+    /// Every point is one step from the one before, and the figure fits there.
+    fn check_steps(map: &MapData, from: (i32, i32), points: &[(i32, i32, i32)]) {
+        let infos = infos();
+        let mut at = (from.0, from.1, 0);
+        for &p in points {
+            assert!((p.0 - at.0).abs() <= STEP && (p.1 - at.1).abs() <= STEP, "a jump from {at:?} to {p:?}");
+            assert_ne!((p.0, p.1), (at.0, at.1));
+            let body = WorldBox { x: p.0, y: p.1, z: p.2, xd: 64, yd: 64, zd: 40 };
+            for it in map.items.iter().filter(|it| it.shape == BLOCK) {
+                assert!(!WorldBox::of(it, &infos[BLOCK as usize]).overlaps(&body), "inside the wall at {p:?}");
+            }
+            at = p;
+        }
+    }
+
+    #[test]
+    fn straight_across_open_floor() {
+        let map = world(|_, _| true, &[]);
+        let (points, reached) = way(&map, (200, 200), (840, 200)).expect("a way");
+        assert!(reached);
+        check_steps(&map, (200, 200), &points);
+        // no detour: as many steps as the distance needs
+        assert_eq!(points.len(), 19);
+        assert!(points.iter().all(|p| p.1 == 200 && p.2 == 0));
+    }
+
+    #[test]
+    fn around_a_wall() {
+        // a wall across the upper three rows, open below
+        let map = world(|_, _| true, &[(3, 0), (3, 1), (3, 2)]);
+        let (points, reached) = way(&map, (200, 200), (840, 200)).expect("a way");
+        assert!(reached);
+        check_steps(&map, (200, 200), &points);
+        // it leads round the lower end of the wall (which ends at 384)
+        assert!(points.iter().any(|p| p.1 - 64 >= 384));
+        let last = points.last().unwrap();
+        assert!((last.0 - 840).abs() <= STEP && (last.1 - 200).abs() <= STEP);
+    }
+
+    #[test]
+    fn walled_in_goal_is_not_reached() {
+        // the wall goes right across: no way round it
+        let blocks: Vec<(i32, i32)> = (0..8).map(|row| (3, row)).collect();
+        let map = world(|_, _| true, &blocks);
+        match way(&map, (200, 200), (840, 200)) {
+            None => {}
+            Some((points, reached)) => {
+                assert!(!reached);
+                check_steps(&map, (200, 200), &points);
+                // it ends on this side of the wall
+                assert!(points.iter().all(|p| p.0 <= 384));
+            }
+        }
+    }
+
+    #[test]
+    fn not_across_the_void() {
+        // two columns of floor missing, nothing below: no way over
+        let map = world(|col, _| !(3..5).contains(&col), &[]);
+        match way(&map, (200, 200), (840, 200)) {
+            None => {}
+            Some((points, reached)) => {
+                assert!(!reached);
+                // all of it stays on the floor of this side
+                assert!(points.iter().all(|p| p.0 - 64 < 384 && p.2 == 0), "{points:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn nothing_overhead() {
+        let infos = infos();
+        let mut map = world(|_, _| true, &[]);
+        let actor = figure(200, 200);
+        assert!(open_above_on(&map, &infos, &actor, (200, 200, 0), 96));
+        // a block hanging over his head, from 56 up
+        map.add(Item { shape: BLOCK, x: 256, y: 256, z: 56, ..Item::default() });
+        assert!(!open_above_on(&map, &infos, &actor, (200, 200, 0), 96));
+        // up to below it there is room
+        assert!(open_above_on(&map, &infos, &actor, (200, 200, 0), 56));
+        // beside it nothing is in the way
+        assert!(open_above_on(&map, &infos, &actor, (500, 500, 0), 96));
     }
 }

@@ -91,7 +91,7 @@ fn cmd_pickat(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _st: 
     let point = |s: &str| point(s, cmd);
     let (x, y) = point(arg)?;
     game.draw(surf, opts, false);
-    let id = game.pixel_ids.get((y * surf.width + x) as usize).copied().unwrap_or(0);
+    let id = game.view.pixel_ids.get((y * surf.width + x) as usize).copied().unwrap_or(0);
     match id.checked_sub(1).and_then(|i| game.map().items.get(i as usize)) {
         Some(it) => println!("pickat {x},{y}: {}", game.describe(it)),
         None => println!("pickat {x},{y}: nothing"),
@@ -194,11 +194,11 @@ fn cmd_bandcheck(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _s
     }
     crate::view::ONE_BAND.store(true, std::sync::atomic::Ordering::Relaxed);
     game.draw(surf, opts, false);
-    let (one, one_ids) = (surf.pixels.clone(), game.pixel_ids.clone());
+    let (one, one_ids) = (surf.pixels.clone(), game.view.pixel_ids.clone());
     crate::view::ONE_BAND.store(false, std::sync::atomic::Ordering::Relaxed);
     game.draw(surf, opts, false);
     let bad = one.iter().zip(&surf.pixels).filter(|(a, b)| a != b).count();
-    let bad_ids = one_ids.iter().zip(&game.pixel_ids).filter(|(a, b)| a != b).count();
+    let bad_ids = one_ids.iter().zip(&game.view.pixel_ids).filter(|(a, b)| a != b).count();
     if let (true, Some(i)) = (ghost, av) {
         game.map_mut().items[i].flags &= !crate::map::FLG_INVISIBLE;
     }
@@ -214,7 +214,7 @@ fn cmd_gpucheck(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _st
     let (w, h) = arg.trim_end_matches(['s', 'c']).split_once('x').and_then(|(w, h)| Some((w.parse::<usize>().ok()?, h.parse::<usize>().ok()?))).ok_or("gpucheck:<w>x<h>[s|c]")?;
     game.draw(surf, opts, false);
     let (sw, sh) = (surf.width as usize, surf.height as usize);
-    let sharp: &[bool] = if game.sharp.len() == sw * sh { &game.sharp } else { &[] };
+    let sharp: &[bool] = if game.view.sharp.len() == sw * sh { &game.view.sharp } else { &[] };
     if crt {
         let gpu = crate::gpuscale::offscreen(&surf.pixels, sw as u32, sh as u32, crate::gpuscale::Look::Crt, (w as u32, h as u32))?;
         let mut a = Surface::new(w as i32, h as i32);
@@ -284,7 +284,7 @@ fn cmd_smooth(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _st: 
             game.draw(surf, opts, false);
             let av = game.avatar();
             let shown = game.shown_at(AVATAR).unwrap_or((0, 0));
-            let o = game.view_origin;
+            let o = game.view.origin;
             println!("tick {tick}.{sub}: world {},{} drawn at {},{} view {},{}", av.x, av.y, shown.0, shown.1, o.0, o.1);
             std::thread::sleep(Duration::from_millis(16));
         }
@@ -311,10 +311,10 @@ fn cmd_flicker(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _st:
             let av = game.avatar();
             println!("tick {tick}: roofs hidden above {roof:?} (avatar at {},{},{})", av.x, av.y, av.z);
         }
-        let (first, o1) = (surf.pixels.clone(), game.view_origin);
+        let (first, o1) = (surf.pixels.clone(), game.view.origin);
         std::thread::sleep(Duration::from_millis(14));
         game.draw(surf, opts, false);
-        let o2 = game.view_origin;
+        let o2 = game.view.origin;
         let (sx, sy) = (o2.0 - o1.0, o2.1 - o1.1);
         let (mut n, mut bx0, mut by0, mut bx1, mut by1) = (0, w, h, 0, 0);
         for y in 8..h - 8 {
@@ -359,7 +359,7 @@ fn cmd_blink(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _st: &
         game.step(Some(MoveInput { dir, run: false }));
         std::thread::sleep(Duration::from_millis(5));
         game.draw(surf, opts, false);
-        frames.push((surf.pixels.clone(), game.view_origin));
+        frames.push((surf.pixels.clone(), game.view.origin));
         if frames.len() < 3 {
             continue;
         }
@@ -377,7 +377,7 @@ fn cmd_blink(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _st: &
                 };
                 if let (Some(pa), Some(pb), Some(pc)) = (at(a), at(b), at(c)) {
                     // PAGAN_BLINK=any: every change from one picture to the next
-                    let any = std::env::var_os("PAGAN_BLINK").is_some();
+                    let any = crate::debug::env().blink;
                     if (any && pb != pc) || (!any && pa == pc && pa != pb) {
                         n += 1;
                         (bx0, by0, bx1, by1) = (bx0.min(x), by0.min(y), bx1.max(x), by1.max(y));
@@ -422,7 +422,7 @@ fn cmd_sweep(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _st: &
         let (cx, cy) = (v[0] + (v[3] - v[0]) * i / steps, v[1] + (v[4] - v[1]) * i / steps);
         game.camera = effects::CameraMode::Fixed(cx, cy, v[2]);
         game.draw(surf, opts, true);
-        let o2 = game.view_origin;
+        let o2 = game.view.origin;
         if let Some((first, o1)) = &prev {
             let (mut n, mut bx0, mut by0, mut bx1, mut by1) = (0, w, h, 0, 0);
             for y in 0..h {
@@ -567,13 +567,13 @@ fn cmd_order(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _st: &
         for sub in 0..3 {
             std::thread::sleep(Duration::from_millis(9));
             game.draw(surf, opts, false);
-            let (with, o1) = (surf.pixels.clone(), game.view_origin);
+            let (with, o1) = (surf.pixels.clone(), game.view.origin);
             let at = game.shown_at(AVATAR).unwrap_or((w / 2, h / 2));
             let at = (at.0 + o1.0, at.1 + o1.1);
             opts.hide = AVATAR;
             game.draw(surf, opts, false);
             opts.hide = 0;
-            let o2 = game.view_origin;
+            let o2 = game.view.origin;
             let (mut n, mut bx0, mut by0, mut bx1, mut by1) = (0, w, h, 0, 0);
             for y in 16..h - 16 {
                 for x in 16..w - 16 {
@@ -827,7 +827,7 @@ fn cmd_sheet(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _st: &
     game.draw(surf, opts, false); // the Avatar dressed as now
     let shape = game.data.shapes.get(shape_no).ok_or("no such shape")?;
     // PAGAN_HEADS: the Avatar's head as found for the helmet, in magenta
-    let heads = std::env::var_os("PAGAN_HEADS").is_some();
+    let heads = crate::debug::env().heads;
     let frames: Vec<(usize, &shape::Frame)> = shape.frames.iter().enumerate().skip(first).take(count).filter(|(_, f)| f.width > 0).collect();
     let cell_w = frames.iter().map(|(_, f)| f.width).max().unwrap_or(1) + 6;
     let cell_h = frames.iter().map(|(_, f)| f.height).max().unwrap_or(1) + 14;
@@ -906,7 +906,7 @@ fn cmd_turnlive(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _st
     let mut seen = Vec::new();
     while started.elapsed().as_millis() < 700 {
         game.draw(surf, opts, false);
-        seen.push(format!("{:.0}", game.view_xf.angle));
+        seen.push(format!("{:.0}", game.view.xf.angle));
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
     println!("{cmd}: {}", seen.join(" "));
@@ -948,8 +948,8 @@ fn cmd_zoom(game: &mut Game, surf: &mut Surface, _opts: &mut ViewOptions, _st: &
     let num = |s: &str| number(s, cmd);
     let pct = num(arg)?.clamp(25, 400);
     *surf = Surface::new(640 * pct / 100, 400 * pct / 100);
-    game.view_size = (surf.width, surf.height);
-    game.view_zoom = pct as f32 / 100.0;
+    game.view.size = (surf.width, surf.height);
+    game.view.zoom = pct as f32 / 100.0;
     Ok(Flow::Done)
 }
 

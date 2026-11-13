@@ -122,9 +122,10 @@ pub struct ViewOptions {
     /// Items drawn see-through (index into the items, strength 0..=256):
     /// creatures fading in.
     pub fading: Vec<(usize, u32)>,
-    /// The figure climbing onto a ledge (index into the items): it is
-    /// painted in front of the ledge.
-    pub climbing: Option<usize>,
+    /// The figure climbing onto a ledge (index into the items), the
+    /// direction it climbs in (0 = north, clockwise) and the height it
+    /// climbs from: it is seen in front of the ledge (see `climbed_ledge`).
+    pub climbing: Option<(usize, u8, i32)>,
 }
 
 /// An item as it was drawn, for finding what is under the mouse pointer.
@@ -164,7 +165,7 @@ pub fn render(surf: &mut Surface, cam: &Camera, items: &[Item], infos: &[ShapeIn
     // Shapes reach at most a few hundred pixels from their origin.
     const MARGIN: i32 = 512;
     let mut sorter = Sorter::new(cam_sx, cam_sy, surf.width, surf.height);
-    sorter.climbing = opts.climbing;
+    sorter.climbing = opts.climbing.map(|(figure, _, from)| (figure, from));
     for (id, it) in items.iter().enumerate() {
         if !it.in_world() || (opts.hide != 0 && it.id == opts.hide) {
             continue;
@@ -225,7 +226,86 @@ pub fn render(surf: &mut Surface, cam: &Camera, items: &[Item], infos: &[ShapeIn
         .map(|(h, frame, id, x, y, flipped, look)| PaintJob { frame: &held[h].frames[frame as usize], x, y, flipped, look, id })
         .collect();
     paint_all(surf, ids, &jobs, pal);
+    drop(jobs);
+    if let Some((figure, dir, _)) = opts.climbing {
+        paint_climber(surf, ids, items, infos, shapes, pal, overlay, (cam_sx, cam_sy), figure, dir);
+    }
     order.iter().map(|si| Painted { index: si.id, sx: si.sx, sy: si.sy, shape: si.shape, frame: si.frame, flipped: si.flipped }).collect()
+}
+
+/// For a figure climbing onto a ledge: is `t` part of the ledge (its edge,
+/// roof or floor up at about the figure's head, ahead of it and not
+/// clearly in front of it)?
+///
+/// The ledge is what lies ahead, and the edge right over him that he
+/// pulls himself over: the eaves of the roof he climbs onto overhang the
+/// spot he climbs from, a strip running across his way. Where two houses
+/// meet, the eaves of the other one hang over that corner too, but run
+/// along his way (or lie beside it): they are not what he climbs, and he
+/// stays hidden behind them.
+fn climbed_ledge(t: &Item, t_info: &ShapeInfo, figure: &Item, figure_info: &ShapeInfo, dir: u8) -> bool {
+    const DIRS: [(i32, i32); 8] = [(0, -1), (1, -1), (1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1)];
+    /// How far the ledge may reach back over the figure's box.
+    const REACH: i32 = 32;
+    let (dx, dy) = DIRS[dir as usize % 8];
+    let (txd, tyd, _) = t_info.footpad(t.flags & FLG_FLIPPED != 0);
+    let (fxd, fyd, fzd) = figure_info.footpad(figure.flags & FLG_FLIPPED != 0);
+    let (t_left, t_far) = (t.x - txd, t.y - tyd);
+    let (f_left, f_far, f_top) = (figure.x - fxd, figure.y - fyd, figure.z + fzd);
+    let ahead_x = (dx < 0 && t.x <= f_left + REACH) || (dx > 0 && t_left >= figure.x - REACH);
+    let ahead_y = (dy < 0 && t.y <= f_far + REACH) || (dy > 0 && t_far >= figure.y - REACH);
+    // over him, across his way (climbing along x: a strip along y)
+    let over = t.x > f_left && t.y > f_far && ((dy == 0 && tyd > txd) || (dx == 0 && txd > tyd));
+    let standing = t_info.creature && !t_info.lies_in(t.frame);
+    (ahead_x || ahead_y || over) && !standing && t.z > figure.z && t.z <= f_top + 16 && t_far < figure.y && t_left < figure.x
+}
+
+/// The figure climbing onto a ledge is seen in front of it: its picture
+/// already reaches up there with head and arms while its box is still
+/// below, and the edge of a roof was painted over the Avatar climbing
+/// onto it. So after everything is painted in its order, the figure is
+/// painted once more wherever the picture shows the ledge. Whatever else
+/// hides him (the roof of the house next door) goes on hiding him, and
+/// nothing changes its place in the order for him. (Putting him behind
+/// the ledge in the order instead closed circles with what stood between
+/// the two: a wall beside him was painted over the roof while he climbed.)
+fn paint_climber(surf: &mut Surface, ids: &mut [u32], items: &[Item], infos: &[ShapeInfo], shapes: &mut Shapes, pal: &Palette,
+                 overlay: Option<&Overlay>, (cam_sx, cam_sy): (i32, i32), figure: usize, dir: u8) {
+    let Some(fig) = items.get(figure) else { return };
+    let Some(fig_info) = infos.get(fig.shape as usize) else { return };
+    // (an invisible Avatar is only faintly there: not brought forward)
+    if !fig.in_world() || fig.flags & FLG_INVISIBLE != 0 {
+        return;
+    }
+    let ledge: Vec<bool> = items
+        .iter()
+        .map(|t| t.in_world() && infos.get(t.shape as usize).is_some_and(|info| climbed_ledge(t, info, fig, fig_info, dir)))
+        .collect();
+    let (sx, sy) = (fig.x / 4 - fig.y / 4 - cam_sx, fig.x / 8 + fig.y / 8 - fig.z - cam_sy);
+    let id = figure as u32 + 1;
+    let mut paint = |shape: u32, frame: u32, x: i32, y: i32, flipped: bool| {
+        let Some(shape) = shapes.get(shape) else { return };
+        let Some(f) = shape.frames.get(frame as usize) else { return };
+        let (x0, y0) = (if flipped { x + f.xoff - f.width } else { x - f.xoff }, y - f.yoff);
+        for row in (-y0).max(0)..(surf.height - y0).min(f.height) {
+            for col in 0..f.width {
+                let c = f.pixels[(row * f.width + if flipped { f.width - 1 - col } else { col }) as usize];
+                let dx = x0 + col;
+                if c == TRANSPARENT || dx < 0 || dx >= surf.width {
+                    continue;
+                }
+                let at = ((y0 + row) * surf.width + dx) as usize;
+                if ids[at] != 0 && ledge[ids[at] as usize - 1] {
+                    surf.pixels[at] = pal.colors[c as usize];
+                    ids[at] = id;
+                }
+            }
+        }
+    };
+    paint(fig.shape, fig.frame, sx, sy, fig.flags & FLG_FLIPPED != 0);
+    if let Some(o) = overlay.filter(|o| o.index == figure) {
+        paint(o.shape, o.frame, sx + o.dx, sy + o.dy, false);
+    }
 }
 
 /// Paint the world in one band (for the test command bandcheck).

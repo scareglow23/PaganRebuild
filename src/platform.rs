@@ -226,7 +226,7 @@ impl Gpu {
             width: size.width.max(1),
             height: size.height.max(1),
             present_mode: wgpu::PresentMode::Fifo,
-            desired_maximum_frame_latency: std::env::var("PAGAN_LATENCY").ok().and_then(|v| v.parse().ok()).unwrap_or(1),
+            desired_maximum_frame_latency: crate::debug::env().latency.unwrap_or(1),
             alpha_mode: caps.alpha_modes[0],
             view_formats: vec![],
         };
@@ -339,7 +339,7 @@ impl App {
         if event.state == ElementState::Pressed {
             if let Some(t) = &event.text {
                 input.typed.extend(t.chars().filter(|c| !c.is_control()));
-                if std::env::var_os("PAGAN_KEYS").is_some() {
+                if crate::debug::env().keys {
                     eprintln!("typed {t:?}");
                 }
             }
@@ -358,7 +358,7 @@ impl App {
                 None => return,
             },
         };
-        if std::env::var_os("PAGAN_KEYS").is_some() {
+        if crate::debug::env().keys {
             eprintln!("key {k:?} {:?} repeat {} alt {}", event.state, event.repeat, input.alt);
         }
         // Alt+Enter: full screen or back (the game does not see this Enter)
@@ -424,7 +424,7 @@ impl ApplicationHandler for App {
             .with_min_inner_size(PhysicalSize::new(320, 200))
             .with_resizable(true)
             // PAGAN_FULLSCREEN=1: in the full screen from the start (for tests)
-            .with_fullscreen(std::env::var_os("PAGAN_FULLSCREEN").map(|_| winit::window::Fullscreen::Borderless(None)));
+            .with_fullscreen(crate::debug::env().fullscreen.then_some(winit::window::Fullscreen::Borderless(None)));
         match el.create_window(attrs) {
             Ok(w) => {
                 let w = Arc::new(w);
@@ -549,7 +549,7 @@ impl Window {
             input: Input::default(),
             key_map: Default::default(),
         };
-        let desktop_pace = cfg!(windows) && std::env::var_os("PAGAN_NO_DWM").is_none();
+        let desktop_pace = cfg!(windows) && !crate::debug::env().no_dwm;
         let mut win = Window { events, app, logical: (w, h), pressed: Vec::new(), typed: String::new(), wheel: None, desktop_pace, fill: false,
             pads: gilrs::Gilrs::new().ok(), pad_events: Vec::new(), pad_next: Vec::new(), stick: (0.0, 0.0), right_stick: (0.0, 0.0), pad_held: Default::default(), virtual_down: Default::default(), virtual_buttons: [false; 2] };
         // the window is made when the event loop starts

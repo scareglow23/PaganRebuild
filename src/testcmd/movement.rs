@@ -34,7 +34,7 @@ fn cmd_walkturns(game: &mut Game, _surf: &mut Surface, _opts: &mut ViewOptions, 
             break;
         }
         game.step(None);
-        if std::env::var_os("PAGAN_TRACE").is_some() && game.tick.is_multiple_of(5) {
+        if crate::debug::env().trace && game.tick.is_multiple_of(5) {
             let av = game.avatar();
             println!("  tick {} at {},{},{} dir {:?} way {:?}", game.tick, av.x, av.y, av.z, game.inputs.get(&AVATAR).map(|i| i.dir), game.paths.get(&AVATAR).map(|w| &w.points));
         }
@@ -92,7 +92,7 @@ fn cmd_climbwalk(game: &mut Game, _surf: &mut Surface, _opts: &mut ViewOptions, 
     let [x, y, z] = v[..] else { return Err(format!("'{cmd}' expects x,y,z")) };
     game.cancel_approach();
     game.start_walk(x, y);
-    game.climb_goal = Some(jump::ClimbGoal::new(x, y, z));
+    game.orders.climb_goal = Some(jump::ClimbGoal::new(x, y, z));
     let mut climbs = 0;
     for _ in 0..1500 {
         let was_busy = game.mover(AVATAR).busy();
@@ -101,7 +101,7 @@ fn cmd_climbwalk(game: &mut Game, _surf: &mut Surface, _opts: &mut ViewOptions, 
         if !was_busy && game.mover(AVATAR).busy() && (anim::CLIMB_FIRST..=anim::CLIMB_LAST).contains(&a) {
             climbs += 1;
         }
-        if game.climb_goal.is_none() && !game.walking() && !game.mover(AVATAR).busy() {
+        if game.orders.climb_goal.is_none() && !game.walking() && !game.mover(AVATAR).busy() {
             break;
         }
     }
@@ -125,7 +125,7 @@ fn cmd_walkto(game: &mut Game, _surf: &mut Surface, _opts: &mut ViewOptions, _st
 fn cmd_useat(game: &mut Game, _surf: &mut Surface, _opts: &mut ViewOptions, _st: &mut State, _name: &str, arg: &str, cmd: &str) -> Result<Flow, String> {
     let num = |s: &str| number(s, cmd);
     game.use_or_approach(num(arg)? as u16);
-    println!("useat: {}", match game.approaching {
+    println!("useat: {}", match game.orders.approaching {
         Some(id) => format!("walking to {id}"),
         None => "used at once".to_string(),
     });
@@ -142,7 +142,7 @@ fn cmd_walkclick(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _s
 }
 
 fn cmd_run(game: &mut Game, _surf: &mut Surface, _opts: &mut ViewOptions, _st: &mut State, _name: &str, _arg: &str, _cmd: &str) -> Result<Flow, String> {
-    game.run_toggle = !game.run_toggle;
+    game.orders.run_toggle = !game.orders.run_toggle;
     Ok(Flow::Done)
 }
 

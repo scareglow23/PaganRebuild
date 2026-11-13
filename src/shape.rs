@@ -241,3 +241,91 @@ pub fn load_type_flags(path: &Path) -> io::Result<Vec<ShapeInfo>> {
     }
     Ok(infos)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A frame's header (`size`: width, height; `offset`: x, y) with its
+    /// lines, each given as the bytes that encode it.
+    fn frame(compressed: bool, size: (u16, u16), offset: (i16, i16), lines: &[&[u8]]) -> Vec<u8> {
+        let mut d = vec![0u8; 18];
+        d[8] = compressed as u8;
+        d[10..12].copy_from_slice(&size.0.to_le_bytes());
+        d[12..14].copy_from_slice(&size.1.to_le_bytes());
+        d[14..16].copy_from_slice(&offset.0.to_le_bytes());
+        d[16..18].copy_from_slice(&offset.1.to_le_bytes());
+        // the table of the lines: each entry says how far its line lies
+        // behind the entry itself
+        let mut at = 18 + lines.len() * 2;
+        for (y, line) in lines.iter().enumerate() {
+            d.extend_from_slice(&((at - (18 + y * 2)) as u16).to_le_bytes());
+            at += line.len();
+        }
+        for line in lines {
+            d.extend_from_slice(line);
+        }
+        d
+    }
+
+    const T: u16 = TRANSPARENT;
+
+    #[test]
+    fn plain_frame() {
+        // line 0: one pixel free, two drawn, one free; line 1: all four drawn
+        let d = frame(false, (4, 2), (2, -1), &[&[1, 2, 5, 6, 1], &[0, 4, 1, 2, 3, 4]]);
+        let f = decode_frame(&d).unwrap();
+        assert_eq!((f.width, f.height, f.xoff, f.yoff), (4, 2, 2, -1));
+        assert_eq!(f.pixels, vec![T, 5, 6, T, 1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn frame_with_runs() {
+        // line 0: a run of four pixels of colour 7; line 1: one free, two
+        // single pixels, the rest free
+        let d = frame(true, (4, 2), (0, 0), &[&[0, 4 << 1 | 1, 7], &[1, 2 << 1, 8, 9, 1]]);
+        assert_eq!(decode_frame(&d).unwrap().pixels, vec![7, 7, 7, 7, T, 8, 9, T]);
+    }
+
+    /// Damaged frames give nothing or an empty frame, never a failure.
+    #[test]
+    fn damaged_frames() {
+        assert!(decode_frame(&[0; 10]).is_none());
+        // cut off in the middle of a line
+        let d = frame(false, (4, 2), (0, 0), &[&[1, 2, 5, 6, 1], &[0, 4, 1, 2, 3, 4]]);
+        assert!(decode_frame(&d[..d.len() - 3]).is_none());
+        // a size that makes no sense
+        let empty = decode_frame(&frame(false, (0, 5), (0, 0), &[])).unwrap();
+        assert_eq!((empty.width, empty.height, empty.pixels.len()), (0, 0, 0));
+        let huge = decode_frame(&frame(false, (5000, 5000), (0, 0), &[])).unwrap();
+        assert_eq!(huge.pixels.len(), 0);
+        // a line that says more pixels than the frame is wide
+        let d = frame(false, (2, 1), (0, 0), &[&[0, 4, 1, 2, 3, 4]]);
+        assert_eq!(decode_frame(&d).unwrap().pixels, vec![1, 2]);
+    }
+
+    /// A shape with frames that cannot be read keeps their places: the
+    /// frame numbers of the others stay right.
+    #[test]
+    fn shape_keeps_frame_numbers() {
+        let good = frame(false, (1, 1), (0, 0), &[&[0, 1, 9]]);
+        let mut d = vec![0u8; 6 + 2 * 6];
+        d[4] = 2;
+        // frame 0 lies past the end of the data, frame 1 is good
+        d[6..9].copy_from_slice(&[0xFF, 0xFF, 0x0F]);
+        d[12] = 18;
+        d.extend_from_slice(&good);
+        let shape = decode_shape(&d).unwrap();
+        assert_eq!(shape.frames.len(), 2);
+        assert_eq!(shape.frames[0].width, 0);
+        assert_eq!(shape.frames[1].pixels, vec![9]);
+        assert!(decode_shape(&[0; 3]).is_none());
+    }
+
+    #[test]
+    fn footpad_in_world_units() {
+        let info = ShapeInfo { x: 4, y: 1, z: 5, ..Default::default() };
+        assert_eq!(info.footpad(false), (128, 32, 40));
+        assert_eq!(info.footpad(true), (32, 128, 40));
+    }
+}

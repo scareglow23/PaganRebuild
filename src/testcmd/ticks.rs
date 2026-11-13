@@ -6,7 +6,7 @@ pub(super) fn run(game: &mut Game, _surf: &mut Surface, _opts: &mut ViewOptions,
     let num = |s: &str| number(s, cmd);
     if let Some(n) = name.strip_prefix('t') {
         // PAGAN_TICKTIME=1: report every tick that takes longer than 5 ms
-        let timed = std::env::var_os("PAGAN_TICKTIME").is_some();
+        let timed = crate::debug::env().tick_time;
         for _ in 0..num(n)? {
             let start = std::time::Instant::now();
             game.step(None);

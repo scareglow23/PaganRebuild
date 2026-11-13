@@ -607,7 +607,7 @@ impl Game {
     }
 
     fn throw_speed(&self, id: u16) -> i32 {
-        let strength = self.states.get(&AVATAR).map_or(15, |s| s.strength);
+        let strength = self.fights.states.get(&AVATAR).map_or(15, |s| s.strength);
         (64 - self.weight(id) + strength).max(1)
     }
 
@@ -630,7 +630,7 @@ impl Game {
             map.items[idx].flags &= !FLG_CONTAINED;
             map.items[idx].fast = false;
         }
-        let dex = self.states.get(&AVATAR).map_or(15, |s| s.dex);
+        let dex = self.fights.states.get(&AVATAR).map_or(15, |s| s.dex);
         let spread = (4 * (30 - dex)).max(20);
         let mut off = || (self.rng.next() % (2 * spread as u32 + 1)) as i32 - spread;
         let (dx, dy) = (off(), off());

@@ -14,6 +14,27 @@ const REACH_HEIGHT: i32 = 64;
 /// Shape of the key ring (key K uses it, as in the original).
 pub const KEYRING: u32 = 79;
 
+/// What the player has told the Avatar to do and he is still about:
+/// walking to a spot or a thing, climbing there, going for an enemy.
+/// Not saved; a loaded game starts without orders.
+#[derive(Default)]
+pub struct Orders {
+    /// The height of the spot the player sent the Avatar to with a click:
+    /// he has only arrived on that level (a click below an edge is not
+    /// reached by standing above it).
+    pub(crate) walk_level: Option<i32>,
+    /// That spot is on something small (a pillar): only there exactly is he there.
+    pub(crate) walk_exact: bool,
+    /// Modern controls: the item the Avatar walks to in order to use it.
+    pub(crate) approaching: Option<u16>,
+    /// Walking by click to a higher place (see jump.rs).
+    pub(crate) climb_goal: Option<crate::jump::ClimbGoal>,
+    /// Fighting by clicking: the enemy the Avatar goes for.
+    pub(crate) click_fight: Option<ClickFight>,
+    /// Modern controls: shift switches between walking and running.
+    pub(crate) run_toggle: bool,
+}
+
 /// Fighting by clicking, as in Diablo: the enemy that was clicked.
 #[derive(Clone, Copy)]
 pub struct ClickFight {
@@ -33,7 +54,7 @@ impl Game {
     /// Does using this item do anything?
     pub fn usable(&mut self, id: u16) -> bool {
         let Some(it) = self.map().get(id).copied() else { return false };
-        if id != AVATAR && self.states.get(&id).is_some_and(|s| s.dead) {
+        if id != AVATAR && self.fights.states.get(&id).is_some_and(|s| s.dead) {
             return true; // a body can be searched
         }
         // the quarters of the Great Pentacle: their script does something
@@ -60,7 +81,7 @@ impl Game {
         // and someone with something to say (a click talks to them, as
         // Arcadion in the Obsidian Fortress, whose kind would fight him)
         let (dead, hates_him) = (s.dead, s.enemy_alignment & me.alignment != 0);
-        let peaceful = (s.alignment & crate::combat::TOWNSFOLK != 0 || self.script_made.contains(&id) || self.usable(id)) && !fights_him;
+        let peaceful = (s.alignment & crate::combat::TOWNSFOLK != 0 || self.fights.script_made.contains(&id) || self.usable(id)) && !fights_him;
         !dead && hates_him && !peaceful
     }
 
@@ -80,7 +101,7 @@ impl Game {
             self.interact(id, true);
         } else if self.player_in_control() {
             self.add_native(Kind::Pathfind(Pathfind::new(AVATAR, id, (0, 0))), AVATAR, PROC_WALK);
-            self.approaching = Some(id);
+            self.orders.approaching = Some(id);
         }
     }
 
@@ -93,22 +114,22 @@ impl Game {
         }
         let Some(((tx, ty, tz), small)) = self.ground_spot(x, y) else { return false };
         self.start_walk(tx, ty);
-        self.walk_level = Some(tz);
-        self.walk_exact = small;
+        self.orders.walk_level = Some(tz);
+        self.orders.walk_exact = small;
         // higher up than a step: the ledges on the way are climbed
         // (as high: on the way there may be a step down, and up again)
         if tz >= self.avatar().z - 8 {
-            self.climb_goal = Some(crate::jump::ClimbGoal::new(tx, ty, tz));
+            self.orders.climb_goal = Some(crate::jump::ClimbGoal::new(tx, ty, tz));
         }
         true
     }
 
     /// The Avatar walks to a world position.
     pub fn start_walk(&mut self, tx: i32, ty: i32) {
-        self.walk_level = None;
+        self.orders.walk_level = None;
         self.add_native(Kind::Pathfind(Pathfind::new(AVATAR, 0, (tx, ty))), AVATAR, PROC_WALK);
         // 0: only walking, nothing to use on arrival
-        self.approaching = Some(0);
+        self.orders.approaching = Some(0);
     }
 
     /// Is the Avatar on the way somewhere he was sent?
@@ -118,10 +139,10 @@ impl Game {
 
     /// The player steers again: the Avatar stops walking to what was clicked.
     pub fn cancel_approach(&mut self) {
-        self.click_fight = None;
-        self.walk_level = None;
-        self.walk_exact = false;
-        if let Some(g) = self.climb_goal.take() {
+        self.orders.click_fight = None;
+        self.orders.walk_level = None;
+        self.orders.walk_exact = false;
+        if let Some(g) = self.orders.climb_goal.take() {
             if g.nudging {
                 self.inputs.remove(&AVATAR);
             }
@@ -129,7 +150,7 @@ impl Game {
         if let Some(m) = self.actors.get_mut(&AVATAR) {
             m.may_drop = false;
         }
-        if self.approaching.take().is_some() {
+        if self.orders.approaching.take().is_some() {
             self.kill_processes(AVATAR, PROC_WALK);
             self.inputs.remove(&AVATAR);
             self.paths.remove(&AVATAR);
@@ -138,11 +159,11 @@ impl Game {
 
     /// Once the Avatar has arrived at what was clicked, he uses it.
     pub fn tick_approach(&mut self) {
-        let Some(id) = self.approaching else { return };
+        let Some(id) = self.orders.approaching else { return };
         if self.scripts.procs.iter().any(|p| p.item == AVATAR && p.ptype == PROC_WALK && !p.terminated) {
             return; // still on the way
         }
-        self.approaching = None;
+        self.orders.approaching = None;
         if id == 0 {
             return; // just a walk
         }
@@ -201,11 +222,11 @@ impl Game {
     pub fn set_hover(&mut self, pointer: Option<(i32, i32)>) -> bool {
         // Not while the Avatar is on the move: the world slides along under
         // the pointer and one thing after the other would flash up.
-        let still = self.approaching.is_none() && !self.mover(AVATAR).busy();
+        let still = self.orders.approaching.is_none() && !self.mover(AVATAR).busy();
         // With the weapon drawn he moves all the time (strikes, stance):
         // what is under the pointer stays found then instead of flashing.
         // (walking, running, advancing, retreating still count as moving)
-        let fighting = self.state(AVATAR).in_combat && self.approaching.is_none() && ![0, 1, 8, 9].contains(&self.mover(AVATAR).last_anim());
+        let fighting = self.state(AVATAR).in_combat && self.orders.approaching.is_none() && ![0, 1, 8, 9].contains(&self.mover(AVATAR).last_anim());
         let hover = match pointer {
             Some((x, y)) if (still || fighting) && self.player_in_control() && self.ui.drag.is_none() => {
                 self.pick(x, y).filter(|&id| self.noteworthy(id))
@@ -476,7 +497,7 @@ impl Game {
         let s = self.state(id);
         // (also someone still fighting whose foe has fallen: Malchir after
         // the daemon he called up went down, who hates nobody by his kind)
-        let target_gone = s.target == 0 || self.states.get(&s.target).is_some_and(|t| t.dead);
+        let target_gone = s.target == 0 || self.fights.states.get(&s.target).is_some_and(|t| t.dead);
         // (and a creature that hates him but fights someone else: the
         // skeleton fighting the golem; not one that takes orders by a
         // click, as the golem itself)
@@ -589,13 +610,13 @@ impl Game {
     /// Goes for an enemy (the button is taken as held until released).
     pub fn fight_target(&mut self, id: u16) {
         self.cancel_approach();
-        self.click_fight = Some(ClickFight { target: id, held: true, swung: false, misses: 0 });
+        self.orders.click_fight = Some(ClickFight { target: id, held: true, swung: false, misses: 0 });
         self.tick_click_fight();
     }
 
     /// The mouse button is up: one more blow at most.
     pub fn combat_release(&mut self) {
-        if let Some(f) = &mut self.click_fight {
+        if let Some(f) = &mut self.orders.click_fight {
             f.held = false;
         }
     }
@@ -603,11 +624,11 @@ impl Game {
     /// One tick of fighting by clicking: close in on the enemy, strike
     /// when within reach.
     pub fn tick_click_fight(&mut self) {
-        let Some(mut f) = self.click_fight else { return };
+        let Some(mut f) = self.orders.click_fight else { return };
         let target = self.map().get(f.target).copied().filter(|t| t.in_world() && !self.state(f.target).dead);
         let done = !self.fighting() || (f.swung && !f.held) || f.misses > 4;
         let Some(t) = target.filter(|_| !done) else {
-            self.click_fight = None;
+            self.orders.click_fight = None;
             return;
         };
         let av = self.avatar();
@@ -618,7 +639,7 @@ impl Game {
                 self.kill_processes(AVATAR, PROC_WALK);
                 self.inputs.remove(&AVATAR);
                 self.paths.remove(&AVATAR);
-                self.approaching = None;
+                self.orders.approaching = None;
             }
             if !self.mover(AVATAR).busy() {
                 self.avatar_attack(Some(crate::intrinsics::world_dir(dx, dy) as u8), false);
@@ -634,8 +655,8 @@ impl Game {
             pf.touch = true;
             self.add_native(Kind::Pathfind(pf), AVATAR, PROC_WALK);
             // 0: walking only, nothing is used on arrival
-            self.approaching = Some(0);
+            self.orders.approaching = Some(0);
         }
-        self.click_fight = Some(f);
+        self.orders.click_fight = Some(f);
     }
 }

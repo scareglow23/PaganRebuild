@@ -157,6 +157,11 @@ impl Mover {
         self.falling.is_some() || self.playing.as_ref().is_some_and(|p| p.id != STAND && p.id != self.stand_anim)
     }
 
+    /// Where the actor stood when its current animation began.
+    pub fn anim_start(&self) -> Option<(i32, i32, i32)> {
+        self.playing.as_ref().map(|p| p.start)
+    }
+
     pub fn last_anim(&self) -> u32 {
         self.playing.as_ref().map_or(self.last_anim, |p| p.id)
     }
@@ -432,8 +437,7 @@ impl Mover {
         // edge, carries below as it does where the actor stands: in_air)
         let pi = ground.at(tx, ty, tz);
         // PAGAN_STEP=<id>: every step of this actor is printed (for tests)
-        static TRACED: std::sync::OnceLock<Option<u16>> = std::sync::OnceLock::new();
-        if *TRACED.get_or_init(|| std::env::var("PAGAN_STEP").ok().and_then(|v| v.parse().ok())) == Some(item.id) {
+        if crate::debug::env().step == Some(item.id) {
             eprintln!("step {} anim {} frame {} dir {} delta {},{},{} at {},{},{} valid {} supported {} floor {:?} on_ground {}", item.id, anim, frame, dir, dx, dy, dz, item.x, item.y, item.z, pi.valid, pi.supported, pi.floor_z, f.on_ground());
         }
         if self.strict && !pi.valid {

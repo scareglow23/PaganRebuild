@@ -1,0 +1,8 @@
+# Climbing onto a roof in Tenebrae under its eaves (map 39): the edge he pulls himself over stays behind the Avatar while he climbs, it is not drawn across his head
+args: --map 39 --pos 16579,14915,48
+do: t5;walkclick:345,150;t11;where:1;pickat:318,171;pickat:322,173;t60;where:1
+expect: where 1: 16579,14915,57
+expect: pickat 318,171: id     1 shape    1
+expect: pickat 322,173: id     1 shape    1
+reject: shape  410 frame   4 at 16543,14911,88
+expect: where 1: 16579,14827,88

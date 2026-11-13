@@ -21,6 +21,8 @@ mod combat;
 mod cursor;
 mod display;
 mod controls;
+mod crash;
+mod debug;
 mod drag;
 mod effects;
 mod eggs;
@@ -338,7 +340,7 @@ fn new_game(args: &Args) -> Result<Game, Box<dyn Error>> {
         None => return Err("game folder not found - pass it with --game <dir>".into()),
     };
     let lang_dir = game_dir.join(&args.lang);
-    let mut game = Game::load(&lang_dir, (args.screenshot.is_none() || std::env::var_os("PAGAN_SOUND").is_some()) && !args.no_sound).map_err(|e| format!("{}: {e}", lang_dir.display()))?;
+    let mut game = Game::load(&lang_dir, (args.screenshot.is_none() || crate::debug::env().sound) && !args.no_sound).map_err(|e| format!("{}: {e}", lang_dir.display()))?;
 
     if args.map.is_some() || args.pos.is_some() {
         let map = args.map.unwrap_or(game.cur_map);
@@ -377,9 +379,14 @@ fn run(args: Args) -> Result<(), Box<dyn Error>> {
     }
     let mut opts = ViewOptions::default();
     let mut surf = Surface::new(args.size.0, args.size.1);
-    game.view_size = args.size;
+    game.view.size = args.size;
     if let Some(path) = &args.screenshot {
         return Ok(testcmd::run_headless(&mut game, &mut surf, &mut opts, path, &args.commands)?);
+    }
+    // in the window a crash leaves a log behind (test runs show it on the
+    // console, and must not write to the player's folder)
+    if let Some(dir) = user_dir() {
+        crash::install(dir);
     }
     play::Play::new(args, game, surf, opts, with_title)?.run()
 }

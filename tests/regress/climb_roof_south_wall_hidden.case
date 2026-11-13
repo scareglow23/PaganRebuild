@@ -1,0 +1,8 @@
+# Climbing with the jump key onto the roof in front, in the Tenebrae corner where the candlestick stands inside (map 39): while the Avatar pulls himself up, the roof before him stays over the wall and the candlestick of the room below
+args: --map 39 --pos 16507,13819,48
+do: t5;jump:270,250;t6;where:1;pickat:290,180;pickat:281,186;t60;where:1
+expect: where 1: 16507,13819,57
+expect: pickat 290,180: id 20325 shape  412
+expect: pickat 281,186: id 20325 shape  412
+reject: shape  149 frame   1 at 16511,13855,48
+expect: where 1: 16507,13867,88

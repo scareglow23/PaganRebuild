@@ -52,10 +52,10 @@ impl Game {
         let (x, y) = (x.div_euclid(CHUNK) * CHUNK + CHUNK / 2, y.div_euclid(CHUNK) * CHUNK + CHUNK / 2);
         let (mut dx, mut dy) = (x - centre.0, y - centre.1);
         // with the view turned, what is in view is turned as well
-        for _ in 0..self.view_xf.quarter() {
+        for _ in 0..self.view.xf.quarter() {
             (dx, dy) = (-dy, dx);
         }
-        ((dx - dy) / 4).abs() <= self.view_size.0 / 2 + 256 && ((dx + dy) / 8).abs() <= self.view_size.1 / 2 + 256
+        ((dx - dy) / 4).abs() <= self.view.size.0 / 2 + 256 && ((dx + dy) / 8).abs() <= self.view.size.1 / 2 + 256
     }
 
     /// Finds the items that came into or dropped out of the fast area and
@@ -81,7 +81,7 @@ impl Game {
         }
 
         // (and what is in a chunk whose middle is that near)
-        let reach = 2 * (self.view_size.0 / 2 + 256) + 4 * (self.view_size.1 / 2 + 256) + 512;
+        let reach = 2 * (self.view.size.0 / 2 + 256) + 4 * (self.view.size.1 / 2 + 256) + 512;
         let mut entered = Vec::new();
         for idx in self.map().items_near(av.0, av.1, reach) {
             let it = &self.map().items[idx];
@@ -140,7 +140,7 @@ impl Game {
             if it.parent == IN_WORLD {
                 self.kill_processes(it.id, crate::vm::PROC_TYPE_ALL);
                 self.actors.remove(&it.id);
-                self.states.remove(&it.id);
+                self.fights.states.remove(&it.id);
                 self.map_mut().destroy(idx);
             }
         } else if it.id != 0 {
@@ -198,9 +198,9 @@ impl Game {
     /// map or to another place on this one, as the original does with its
     /// teleporters.
     pub fn gate_teleport_to(&mut self, target: (usize, Destination)) {
-        if self.options.map_fade && self.fade.is_none() {
+        if self.options.map_fade && self.screen.fade.is_none() {
             self.gate_teleport = Some(target);
-            self.fade = Some(Fade::new((0, 0, 0), 0, 256, GATE_FADE_OUT));
+            self.screen.fade = Some(Fade::new((0, 0, 0), 0, 256, GATE_FADE_OUT));
         } else {
             self.pending_teleport = Some(target);
         }
@@ -210,12 +210,12 @@ impl Game {
     /// view fades in again on the other side (option "Fade when teleporting").
     pub fn gate_fade_done(&mut self) {
         let Some(target) = self.gate_teleport else { return };
-        if self.fade.is_some_and(|f| f.elapsed < f.steps) {
+        if self.screen.fade.is_some_and(|f| f.elapsed < f.steps) {
             return;
         }
         self.gate_teleport = None;
         self.pending_teleport = Some(target);
-        self.fade = Some(Fade::new((0, 0, 0), 256, 0, GATE_FADE_IN));
+        self.screen.fade = Some(Fade::new((0, 0, 0), 256, 0, GATE_FADE_IN));
     }
 
     /// Carries out a teleport requested by a script or an egg.  Done
@@ -276,9 +276,9 @@ impl Game {
             // an earthquake ends with the map: the script that would have
             // stopped it may just have ended above (a trap that shakes the
             // ground and lets the Avatar fall into a teleporter below)
-            self.quake = 0;
-            self.quake_by = 0;
-            self.quake_offset = (0, 0);
+            self.screen.quake = 0;
+            self.screen.quake_by = 0;
+            self.screen.quake_offset = (0, 0);
             self.barks.clear();
             self.audio.stop_all_sfx();
             self.ask = None;
@@ -306,7 +306,7 @@ impl Game {
             }
             self.cur_map = map;
             // the last frame showed the old map: its item indices mean nothing here
-            self.painted.clear();
+            self.view.painted.clear();
             self.map_mut().add(Item { parent: IN_WORLD, mapnum: map as u16, fast: false, ..old });
             let mut new_ids = crate::hash::HashMap::from_iter([(AVATAR, AVATAR)]);
             for it in carried {
@@ -328,9 +328,9 @@ impl Game {
             // and is there at once: the gliding camera would otherwise slide
             // over from where it was on the old map (if that is near), and
             // people would glide from their last steps over there
-            self.cam_smooth = None;
-            self.cam_vel = (0.0, 0.0, 0.0);
-            self.lerps.clear();
+            self.view.cam_smooth = None;
+            self.view.cam_vel = (0.0, 0.0, 0.0);
+            self.view.lerps.clear();
             self.cache_in();
             if let Err(err) = self.save_to_in_background(crate::savegame::AUTO_SLOT) {
                 eprintln!("autosave: {err}");
@@ -357,7 +357,7 @@ impl Game {
     /// creatures (numbers from 256 on) stay with it, those of `next` come
     /// back. A changeling in the Avatar's shape takes its own again.
     pub fn stash_map_states(&mut self, next: usize) {
-        for (id, _) in std::mem::take(&mut self.changelings) {
+        for (id, _) in std::mem::take(&mut self.fights.changelings) {
             if let Some(idx) = self.map().index(id) {
                 if self.map().items[idx].shape != crate::combat::CHANGELING {
                     self.map_mut().items[idx].shape = crate::combat::CHANGELING;
@@ -365,13 +365,13 @@ impl Game {
                 }
             }
         }
-        let local: Vec<u16> = self.states.keys().copied().filter(|&id| id >= FIRST_MAP_ID).collect();
-        let stash: crate::hash::HashMap<u16, crate::combat::ActorState> = local.into_iter().filter_map(|id| Some((id, self.states.remove(&id)?))).collect();
-        self.script_made.retain(|&id| id < FIRST_MAP_ID);
-        self.calmed.retain(|&id| id < FIRST_MAP_ID);
-        self.map_states.insert(self.cur_map, stash);
-        if let Some(back) = self.map_states.remove(&next) {
-            self.states.extend(back);
+        let local: Vec<u16> = self.fights.states.keys().copied().filter(|&id| id >= FIRST_MAP_ID).collect();
+        let stash: crate::hash::HashMap<u16, crate::combat::ActorState> = local.into_iter().filter_map(|id| Some((id, self.fights.states.remove(&id)?))).collect();
+        self.fights.script_made.retain(|&id| id < FIRST_MAP_ID);
+        self.fights.calmed.retain(|&id| id < FIRST_MAP_ID);
+        self.fights.map_states.insert(self.cur_map, stash);
+        if let Some(back) = self.fights.map_states.remove(&next) {
+            self.fights.states.extend(back);
         }
     }
 
@@ -381,6 +381,7 @@ impl Game {
     /// off as fighters, sinking into the ground) goes back to its place.
     pub fn repair_foreign_states(&mut self) {
         let mut foreign: Vec<u16> = self
+            .fights
             .states
             .keys()
             .chain(self.actors.keys())
@@ -395,7 +396,7 @@ impl Game {
         // the map as it was made, for where its fixed things belong
         let fresh = self.original_map(self.cur_map);
         for id in foreign {
-            self.states.remove(&id);
+            self.fights.states.remove(&id);
             // (its walking and falling too)
             self.actors.remove(&id);
             self.kill_processes(id, crate::vm::PROC_TYPE_ALL);
@@ -418,7 +419,7 @@ impl Game {
     /// attacked, in the middle of the scene that holds the Avatar still).
     pub fn free_actor_id(&self) -> Option<u16> {
         (2..256u16).find(|id| {
-            self.actor_anywhere(*id).is_none() && !self.npc_stats.contains_key(id)
+            self.actor_anywhere(*id).is_none() && !self.people.npc_stats.contains_key(id)
         })
     }
 
@@ -428,7 +429,7 @@ impl Game {
         let (cx, cy, cz) = self.camera_position();
         let sx = (x - y) / 4 - (cx - cy) / 4;
         let sy = (x + y) / 8 - z - ((cx + cy) / 8 - cz);
-        let (w, h) = self.view_size;
+        let (w, h) = self.view.size;
         sx.abs() <= w / 2 + 64 && sy >= -h / 2 - 16 && sy <= h / 2 + 128
     }
 
@@ -446,7 +447,7 @@ impl Game {
             self.fade_ins.retain(|_, start| now.wrapping_sub(*start) < FADE_IN_TICKS);
             self.fade_ins.insert(id, now);
         }
-        if std::env::var_os("PAGAN_DEBUG").is_some() {
+        if crate::debug::env().debug {
             eprintln!("hatch: egg {} at {},{},{} shape {} activity {} -> actor {id}", egg.id, egg.x, egg.y, egg.z, egg.quality & 0x7FF, egg.mapnum & 7);
         }
         id
@@ -482,10 +483,10 @@ impl Game {
         mover.play(anim::STAND, &item, &mut self.data.anims);
         self.actors.insert(id, mover);
         // a fresh creature, even if the id was used before
-        self.states.remove(&id);
-        self.script_made.remove(&id);
-        self.calmed.remove(&id);
-        self.changelings.remove(&id);
+        self.fights.states.remove(&id);
+        self.fights.script_made.remove(&id);
+        self.fights.calmed.remove(&id);
+        self.fights.changelings.remove(&id);
         self.state(id);
         // what the egg says the creature does: 0 wander about, 1 look for a
         // fight, 2 stand where it is (the toraxen in their pens on map 7):
@@ -499,7 +500,7 @@ impl Game {
             1 if townsfolk => self.start_loitering(id),
             1 => self.set_in_combat(id, true),
             2 => {
-                self.calmed.insert(id);
+                self.fights.calmed.insert(id);
             }
             _ => {}
         }

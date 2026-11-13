@@ -193,7 +193,7 @@ impl Game {
                 return (it.in_world() && !it.dead).then_some((m, it.x, it.y));
             }
         }
-        self.npcs.iter().find(|n| n.item.id == id && !n.item.dead).map(|n| (n.map, n.item.x, n.item.y))
+        self.people.npcs.iter().find(|n| n.item.id == id && !n.item.dead).map(|n| (n.map, n.item.x, n.item.y))
     }
 
     pub fn guide_links(&mut self) -> &[Link] {

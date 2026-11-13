@@ -660,7 +660,7 @@ impl Game {
     /// numbers are those of the paperdoll.
     pub fn draw_pack_weight(&self, surf: &mut Surface, right: i32, bottom: i32) {
         let Some(font) = &self.data.font else { return };
-        let strength = self.states.get(&crate::game::AVATAR).map_or(15, |s| s.strength);
+        let strength = self.fights.states.get(&crate::game::AVATAR).map_or(15, |s| s.strength);
         let text = format!("{} - {}", self.carried_weight() / 10, 4 * strength);
         font.draw(surf, &text, right - font.width(&text), bottom - font.height, &self.data.pal);
     }

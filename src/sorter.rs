@@ -74,18 +74,7 @@ pub struct SortItem {
     /// A body lying on the ground, and a creature on its feet.
     lying: bool,
     standing: bool,
-    /// A figure climbing onto a ledge.
-    climbing: bool,
     depends: Vec<usize>,
-}
-
-/// For a figure climbing onto a ledge: is `t` part of the ledge (its edge,
-/// roof or floor up at about the figure's head, not clearly in front of
-/// it)? The climbing picture already reaches up there with head and arms
-/// while the box is still below: the edge of a roof was painted over the
-/// Avatar climbing onto it.
-fn climbed_ledge(t: &SortItem, figure: &SortItem) -> bool {
-    figure.climbing && !t.standing && t.z > figure.z && t.z <= figure.z_top + 16 && t.y_far < figure.y && t.x_left < figure.x
 }
 
 /// Two boxes clearly separated along one axis (`far`, `near`: their
@@ -181,13 +170,6 @@ impl SortItem {
         }
         if let Some(front) = in_front_of_island(b, a) {
             return front;
-        }
-        // a figure climbing onto a ledge is in front of it
-        if climbed_ledge(b, a) {
-            return false;
-        }
-        if climbed_ledge(a, b) {
-            return true;
         }
 
         // clearly separated in z
@@ -337,8 +319,9 @@ pub struct Sorter {
     grid_h: i32,
     /// Per item: the last new item that looked at it (to take each once).
     seen: Vec<usize>,
-    /// The figure climbing onto a ledge (index in the caller's list).
-    pub climbing: Option<usize>,
+    /// The figure climbing onto a ledge (index in the caller's list) and
+    /// the height it climbs from.
+    pub climbing: Option<(usize, i32)>,
 }
 
 impl Sorter {
@@ -409,9 +392,22 @@ impl Sorter {
             land: info.land,
             lying: info.lies_in(frame),
             standing: info.creature && !info.lies_in(frame),
-            climbing: self.climbing == Some(id),
             ..Default::default()
         };
+
+        // A figure pulling itself up onto a ledge is put in the order as
+        // if it still stood where it climbs from (it is drawn where it is):
+        // its box reaching over the ledge's height closed circles with
+        // what is around the ledge (the roof before him, its edge beside
+        // him, the roof before), and then the roof before him was painted
+        // under the wall and the candlestick inside. Once his feet are as
+        // high as his head was, he is up and in the order as he stands.
+        if let Some((_, from)) = self.climbing.filter(|c| c.0 == id) {
+            let height = si.z_top - si.z;
+            if si.z > from && si.z < from + height {
+                (si.z, si.z_top) = (from, from + height);
+            }
+        }
 
         let left = if flipped { si.sx + dims.xoff - dims.width } else { si.sx - dims.xoff };
         let top = si.sy - dims.yoff;
@@ -526,5 +522,119 @@ impl Sorter {
 
         let mut slots: Vec<Option<SortItem>> = self.items.into_iter().map(Some).collect();
         order.into_iter().filter_map(|i| slots[i].take()).collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A thing of a small made-up world: its place and what kind it is
+    /// (with its box in tiles, as in the game's type flags).
+    #[derive(Clone, Copy)]
+    struct Thing {
+        pos: (i32, i32, i32),
+        info: ShapeInfo,
+    }
+
+    fn thing(pos: (i32, i32, i32), pad: (i32, i32, i32), info: ShapeInfo) -> Thing {
+        Thing { pos, info: ShapeInfo { x: pad.0, y: pad.1, z: pad.2, ..info } }
+    }
+    fn floor(x: i32, y: i32, z: i32) -> Thing {
+        thing((x, y, z), (4, 4, 0), ShapeInfo { solid: true, land: true, ..Default::default() })
+    }
+    fn block(x: i32, y: i32, z: i32) -> Thing {
+        thing((x, y, z), (4, 4, 5), ShapeInfo { solid: true, ..Default::default() })
+    }
+    fn figure(x: i32, y: i32, z: i32) -> Thing {
+        thing((x, y, z), (2, 2, 5), ShapeInfo { creature: true, ..Default::default() })
+    }
+
+    /// The order the things are painted in (their numbers in `things`),
+    /// with pictures that just cover their boxes.
+    fn order(things: &[Thing]) -> Vec<usize> {
+        let mut sorter = Sorter::new(-320, 100, 640, 400);
+        for (id, t) in things.iter().enumerate() {
+            let (xd, yd, zd) = t.info.footpad(false);
+            let dims = FrameDims { width: (xd + yd) / 4, height: (xd + yd) / 8 + zd, xoff: yd / 4, yoff: (xd + yd) / 8 + zd };
+            sorter.add(id, t.pos, id as u32, 0, false, false, &t.info, &dims);
+        }
+        sorter.paint_order().iter().map(|si| si.id).collect()
+    }
+
+    /// Is `a` painted before `b`, whichever of them is added first?
+    fn before(a: Thing, b: Thing) -> bool {
+        let ab = order(&[a, b]);
+        let ba = order(&[b, a]);
+        assert_eq!(ab.len(), 2);
+        assert_eq!(ab == [0, 1], ba == [1, 0], "the order depends on which is added first");
+        ab == [0, 1]
+    }
+
+    #[test]
+    fn floor_under_the_figure() {
+        assert!(before(floor(1152, 1152, 0), figure(1100, 1100, 0)));
+        // a floor above his head is painted over him
+        assert!(before(figure(1100, 1100, 0), floor(1152, 1152, 40)));
+    }
+
+    #[test]
+    fn figure_and_wall() {
+        let wall = block(1152, 1152, 0);
+        // behind the wall (further back along x, along y): painted first
+        assert!(before(figure(1020, 1100, 0), wall));
+        assert!(before(figure(1100, 1020, 0), wall));
+        // in front of it: painted after it
+        assert!(before(wall, figure(1216, 1140, 0)));
+        assert!(before(wall, figure(1140, 1216, 0)));
+        // standing on top of it
+        assert!(before(wall, figure(1100, 1100, 40)));
+    }
+
+    #[test]
+    fn roof_over_what_stands_below() {
+        let roof = thing((1152, 1152, 40), (4, 4, 0), ShapeInfo { solid: true, land: true, roof: true, ..Default::default() });
+        assert!(before(figure(1100, 1100, 0), roof));
+        // a tall thing under the roof that reaches into it is still below it
+        let tall = thing((1100, 1100, 0), (1, 1, 7), ShapeInfo { solid: true, ..Default::default() });
+        assert!(before(tall, roof));
+    }
+
+    /// What a wall hides completely is not painted at all.
+    #[test]
+    fn hidden_behind_a_wall() {
+        let wall = thing((1152, 1152, 0), (4, 4, 5), ShapeInfo { solid: true, occl: true, ..Default::default() });
+        let small = thing((1020, 1100, 0), (1, 1, 1), ShapeInfo { solid: true, ..Default::default() });
+        assert_eq!(order(&[wall, small]), vec![0]);
+        assert_eq!(order(&[small, wall]), vec![1]);
+        // in front of the wall it is painted, after the wall
+        let front = thing((1200, 1180, 0), (1, 1, 1), ShapeInfo { solid: true, ..Default::default() });
+        assert_eq!(order(&[front, wall]), vec![1, 0]);
+    }
+
+    /// Whatever lies about, however it overlaps: every thing is painted
+    /// exactly once, and the order is the same every time.
+    #[test]
+    fn everything_once() {
+        let mut seed = 12345u32;
+        let mut next = |n: i32| {
+            seed = seed.wrapping_mul(1_103_515_245).wrapping_add(12345);
+            ((seed >> 16) as i32).rem_euclid(n)
+        };
+        let things: Vec<Thing> = (0..300)
+            .map(|_| {
+                let pos = (900 + next(500), 900 + next(500), next(6) * 8);
+                let pad = (1 + next(4), 1 + next(4), next(6));
+                thing(pos, pad, ShapeInfo { solid: true, roof: next(8) == 0, translucent: next(8) == 0, ..Default::default() })
+            })
+            .collect();
+        let painted = order(&things);
+        let mut sorted = painted.clone();
+        sorted.sort_unstable();
+        sorted.dedup();
+        assert_eq!(sorted.len(), painted.len(), "something is painted twice");
+        // (nothing is marked as hiding other things here, so nothing is left out)
+        assert_eq!(painted.len(), things.len());
+        assert_eq!(painted, order(&things));
     }
 }

@@ -135,7 +135,7 @@ pub struct FrameTimes {
 impl FrameTimes {
     /// Only with PAGAN_FRAMETIME set.
     pub fn from_env() -> Option<FrameTimes> {
-        std::env::var_os("PAGAN_FRAMETIME").map(|_| FrameTimes { times: Vec::new() })
+        crate::debug::env().frame_time.then(|| FrameTimes { times: Vec::new() })
     }
 
     /// One more picture; every 120 the averages and longest times go to

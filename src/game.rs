@@ -48,26 +48,108 @@ pub struct Bark {
     pub text: String,
 }
 
+/// What belongs to the picture and not to the world: how the view is
+/// set, what the last picture showed (for the mouse and for effects laid
+/// over it), and movements spread over the pictures between two ticks.
+/// None of it is saved; a loaded game draws it anew.
+pub struct ViewState {
+    /// What the last frame showed, for mouse picking.
+    pub(crate) painted: Vec<Painted>,
+    /// Size of the view in pixels; decides how far the world is active.
+    pub(crate) size: (i32, i32),
+    /// Pixels of the view the smoothing leaves sharp: the visible patterned
+    /// armour of the Avatar (empty: none). Made with every picture.
+    pub(crate) sharp: Vec<bool>,
+    /// View pixels per pixel of the original size (the zoom): above 1 the
+    /// view is drawn larger and shown smaller.
+    pub(crate) zoom: f32,
+    /// While a menu or book covers the world (drawn at the original size),
+    /// the world's own size and zoom: it is drawn as in play and scaled
+    /// under the menu, so the zoom does not jump.
+    pub(crate) under_menu: Option<((i32, i32), f32)>,
+    /// Actors on their way from one animation step to the next: drawn at
+    /// positions in between while the smooth option is on.
+    pub(crate) lerps: HashMap<u16, Lerp>,
+    /// Where the gliding camera is right now, and when it was last moved.
+    pub(crate) cam_smooth: Option<((f32, f32, f32), std::time::Instant)>,
+    /// The general light of the lighting as last drawn, and at which tick:
+    /// it goes over smoothly to a new one (into a cave, through the day).
+    pub(crate) ambient_now: Option<([f32; 3], u32)>,
+    /// Lights found covered by floor (see lighting.rs), on which map, and
+    /// when (by item id).
+    pub(crate) covered_seen: (usize, crate::hash::HashMap<u16, (bool, u32, (u32, i32, i32, i32))>),
+    /// Things found in a room under a roof (see lighting.rs).
+    pub(crate) rooms_seen: crate::lighting::RoomsSeen,
+    /// How far the light of rooms has come in (0 outside, 1 in a house),
+    /// and at which tick: it goes over smoothly when the Avatar goes in or out.
+    pub(crate) room_light: (f32, u32),
+    /// How fast the gliding camera is moving (world units per second).
+    pub(crate) cam_vel: (f32, f32, f32),
+    /// The camera's target as of the last picture, and since when it has
+    /// been there.
+    pub(crate) cam_target: Option<((f32, f32, f32), std::time::Instant)>,
+    /// When the program started: the blinking of the text cursor (name
+    /// entry) is counted from it.
+    pub(crate) blink_start: std::time::Instant,
+    /// Screen-space position of the view's top left corner in the last frame.
+    pub(crate) origin: (i32, i32),
+    /// How the last picture was drawn: centre and turn (for converting
+    /// between view and world positions).
+    pub(crate) xf: crate::turnview::Xform,
+    /// The item drawn at every pixel of the last picture (original view;
+    /// index + 1, 0 where nothing is).
+    pub(crate) pixel_ids: Vec<u32>,
+    /// How strongly the Avatar's outline shows (silhouette.rs).
+    pub(crate) outline: crate::silhouette::OutlineFade,
+}
+
+impl ViewState {
+    fn new() -> ViewState {
+        ViewState {
+            painted: Vec::new(),
+            size: (640, 400),
+            sharp: Vec::new(),
+            zoom: 1.0,
+            under_menu: None,
+            lerps: HashMap::default(),
+            cam_smooth: None,
+            ambient_now: None,
+            covered_seen: (usize::MAX, HashMap::default()),
+            rooms_seen: (usize::MAX, HashMap::default()),
+            room_light: (0.0, 0),
+            cam_vel: (0.0, 0.0, 0.0),
+            cam_target: None,
+            blink_start: std::time::Instant::now(),
+            origin: (0, 0),
+            xf: crate::turnview::Xform { cam: (0, 0, 0), angle: 0.0, size: (640, 400) },
+            pixel_ids: Vec::new(),
+            outline: Default::default(),
+        }
+    }
+}
+
+/// The people of the game (the permanent NPCs, numbers below 256): what
+/// the game's files and a savegame say about them, by their number.
+pub struct People {
+    /// Those that are not on a loaded map, with the map they wait on.
+    pub(crate) npcs: Vec<Npc>,
+    /// The way each of them faces.
+    pub(crate) npc_dirs: HashMap<u16, u8>,
+    /// Their four values (strength ...) as in the game's files.
+    pub(crate) npc_stats: HashMap<u16, [u8; 4]>,
+    /// Alignment byte and actor flags.
+    pub(crate) npc_combat: HashMap<u16, (u8, u32)>,
+}
+
 pub struct Game {
     pub(crate) fixed: Flex,
     pub(crate) nonfixed: Flex,
     globs: Flex,
-    /// Permanent NPCs that are not on the current map.
-    pub npcs: Vec<Npc>,
     pub maps: HashMap<usize, MapData>,
     pub cur_map: usize,
 
     /// Animation state of the actors that have moved so far.
     pub actors: HashMap<u16, Mover>,
-    pub npc_dirs: HashMap<u16, u8>,
-    pub npc_stats: HashMap<u16, [u8; 4]>,
-    /// Alignment byte and actor flags of the permanent NPCs.
-    pub npc_combat: HashMap<u16, (u8, u32)>,
-    pub states: HashMap<u16, crate::combat::ActorState>,
-    /// The fight states of the creatures of the maps the Avatar is not on
-    /// (their numbers from 256 on belong to one map: on another the same
-    /// number is something else, a floor tile, say).
-    pub map_states: HashMap<usize, HashMap<u16, crate::combat::ActorState>>,
     /// Ticks until the fallen Avatar gets up again.
     pub avatar_died: Option<u32>,
     /// Things destroyed by a script this tick: a script may still read
@@ -75,30 +157,11 @@ pub struct Game {
     /// the unlit one), as in the original, where they live on to the end
     /// of the tick.
     pub just_destroyed: crate::hash::HashMap<u16, crate::map::Item>,
-    /// Creatures a script took out of a fight (Confusion Blast ...): they
-    /// do not start another one on sight, only when attacked again.
-    pub calmed: crate::hash::HashSet<u16>,
-    /// Creatures a script made (createActor) for a scene: they do not start
-    /// fights on sight, only when their script puts them in one (or they
-    /// are attacked). The ghouls at Lothian's ceremony are such.
-    pub script_made: crate::hash::HashSet<u16>,
-    /// Changelings in the middle of taking the Avatar's shape (combat.rs):
-    /// the step they are at and when it ends.
-    pub changelings: crate::hash::HashMap<u16, crate::combat::Shift>,
-    /// Killed creatures that get up again, and the tick when (combat.rs).
-    /// Not saved: in a loaded game they stay down.
-    pub resurrections: crate::hash::HashMap<u16, u32>,
     /// Tiles of the invisible path a thrown thing has shown, per map, with
     /// the tick they were shown (pathreveal.rs).
     pub revealed_path: crate::hash::HashMap<usize, crate::hash::HashMap<u16, u32>>,
     /// Townsfolk walking about in Tenebrae (option "passers-by").
     pub passersby: Vec<crate::passersby::Passer>,
-    /// The height of the spot the player sent the Avatar to with a click:
-    /// he has only arrived on that level (a click below an edge is not
-    /// reached by standing above it).
-    pub walk_level: Option<i32>,
-    /// That spot is on something small (a pillar): only there exactly is he there.
-    pub walk_exact: bool,
     /// For every moving actor the items it touched after its last step,
     /// so that their "got hit" scripts run once per contact.
     pub touching: HashMap<u16, Vec<u16>>,
@@ -129,25 +192,11 @@ pub struct Game {
     /// The Avatar ignores player input (cutscenes, conversations).
     pub stasis: bool,
 
-    /// What the last frame showed, for mouse picking.
-    pub(crate) painted: Vec<Painted>,
 
-    /// Size of the view in pixels; decides how far the world is active.
-    pub view_size: (i32, i32),
     /// How the Avatar is drawn now (option "show armour").
     pub outfit: (crate::outfit::Look, crate::outfit::Helm, crate::outfit::Glow),
     /// The minimap's picture of the surroundings (option "minimap").
     pub minimap: crate::minimap::Minimap,
-    /// Pixels of the view the smoothing leaves sharp: the visible patterned
-    /// armour of the Avatar (empty: none). Made with every picture.
-    pub sharp: Vec<bool>,
-    /// View pixels per pixel of the original size (the zoom): above 1 the
-    /// view is drawn larger and shown smaller.
-    pub view_zoom: f32,
-    /// While a menu or book covers the world (drawn at the original size),
-    /// the world's own size and zoom: it is drawn as in play and scaled
-    /// under the menu, so the zoom does not jump.
-    pub world_under_menu: Option<((i32, i32), f32)>,
     /// Indices of the items in the active area.
     pub fast_items: Vec<usize>,
     pub pending_teleport: Option<(usize, crate::eggs::Destination)>,
@@ -160,25 +209,11 @@ pub struct Game {
     /// Directions scripts make actors walk in this tick.
     pub inputs: HashMap<u16, MoveInput>,
     pub camera: crate::effects::CameraMode,
-    pub fade: Option<crate::effects::Fade>,
 
     /// Started with --cheat: the game's own debug functions are unlocked.
     pub cheat: bool,
     /// What the cheat keys F8 / F9 put on (it vanishes on the next press).
     pub cheat_worn: Vec<u16>,
-    /// Strength of the earthquake shaking the view (0 = none), and where
-    /// it has pushed the view in this tick (screen pixels).
-    pub quake: i32,
-    pub quake_offset: (i32, i32),
-    /// The script process that set the earthquake (0: none): one started
-    /// before it may not weaken or end it (scripts.rs, `quake_blocked`).
-    pub quake_by: u16,
-    /// The view is shown upside down (a spell).
-    pub inverted: bool,
-    /// Colour transform of the palette (storms).
-    pub pal_transform: u8,
-    /// The "storm colours" setting the colours on screen were made with.
-    pub storm_shown: usize,
     /// The Avatar walks on air (a spell).
     pub airwalk: bool,
     /// Game time at tick 0, in ticks.
@@ -189,11 +224,6 @@ pub struct Game {
     /// 32 grid). The same search again finds nothing new - and one that
     /// finds no way can take a good part of a frame.
     pub path_tried: HashMap<u16, (i32, i32, i32, i32)>,
-    /// Creatures whose walks to their enemy brought them no closer: the
-    /// gap after the last walk and how many walks in a row failed.
-    pub approach_fails: HashMap<u16, (i32, u32)>,
-    /// Creatures on their way to where they last saw the vanished Avatar.
-    pub searching: HashSet<u16>,
     /// Game hour of the last round of schedule scripts, and whose turn it
     /// is in the current round (0: none running).
     pub sched_last_hour: u32,
@@ -217,61 +247,30 @@ pub struct Game {
     /// The player asked for a new game; the main loop starts one.
     pub restart: bool,
     pub options: crate::menu::Options,
-    /// Actors on their way from one animation step to the next: drawn at
-    /// positions in between while the smooth option is on.
-    pub(crate) lerps: HashMap<u16, Lerp>,
-    /// Where the gliding camera is right now, and when it was last moved.
-    pub(crate) cam_smooth: Option<((f32, f32, f32), std::time::Instant)>,
-    /// The general light of the lighting as last drawn, and at which tick:
-    /// it goes over smoothly to a new one (into a cave, through the day).
-    ambient_now: Option<([f32; 3], u32)>,
-    /// Lights found covered by floor (see lighting.rs), on which map, and
-    /// when (by item id).
-    pub(crate) covered_seen: (usize, crate::hash::HashMap<u16, (bool, u32, (u32, i32, i32, i32))>),
-    /// Things found in a room under a roof (see lighting.rs).
-    rooms_seen: crate::lighting::RoomsSeen,
-    /// How far the light of rooms has come in (0 outside, 1 in a house),
-    /// and at which tick: it goes over smoothly when the Avatar goes in or out.
-    room_light: (f32, u32),
-    /// Health the creatures started with, for the bars above them.
-    pub(crate) full_hp: HashMap<u16, i32>,
-    /// How fast the gliding camera is moving (world units per second).
-    pub(crate) cam_vel: (f32, f32, f32),
-    /// The camera's target as of the last picture, and since when it has
-    /// been there.
-    cam_target: Option<((f32, f32, f32), std::time::Instant)>,
     /// 'E', 'G' or 'F': language of the game data.
     pub language: char,
-    /// Modern controls: the item the Avatar walks to in order to use it,
-    /// and the item under the pointer.
-    pub(crate) approaching: Option<u16>,
-    /// Walking by click to a higher place (see jump.rs).
-    pub(crate) climb_goal: Option<crate::jump::ClimbGoal>,
     /// A look script running on the side to find that name.
     pub(crate) name_probe: Option<crate::hover::NameProbe>,
-    /// Fighting by clicking: the enemy the Avatar goes for.
-    pub(crate) click_fight: Option<crate::controls::ClickFight>,
-    /// Modern controls: shift switches between walking and running.
-    pub run_toggle: bool,
     /// The game itself has begun (a name was given or a game loaded);
     /// before that there is no world behind the menus.
     pub started: bool,
     /// The player chose to leave.
     pub quit: bool,
     pub avatar_name: String,
-    pub(crate) blink_start: std::time::Instant,
-    /// Screen-space position of the view's top left corner in the last frame.
-    pub view_origin: (i32, i32),
-    /// How the last picture was drawn: centre and turn (for converting
-    /// between view and world positions).
-    pub view_xf: crate::turnview::Xform,
     /// The turnable view (optional).
     pub turn: crate::turnview::TurnView,
-    /// The item drawn at every pixel of the last picture (original view;
-    /// index + 1, 0 where nothing is).
-    pub pixel_ids: Vec<u32>,
     /// The windows, menus, books and other things on the screen for the player (ui.rs).
     pub ui: crate::ui::Ui,
+    /// Who fights, and how the creatures stand to it (combat.rs).
+    pub(crate) fights: crate::combat::Fights,
+    /// The people of the game, by their number.
+    pub(crate) people: People,
+    /// What changes the whole picture: fades, earthquake, storm colours (effects.rs).
+    pub(crate) screen: crate::effects::ScreenEffects,
+    /// What the player has told the Avatar to do (controls.rs).
+    pub(crate) orders: crate::controls::Orders,
+    /// The view and what the last picture showed.
+    pub view: ViewState,
     /// The game's own data from its files (gamedata.rs).
     pub data: crate::gamedata::GameData,
 }
@@ -335,25 +334,19 @@ impl Game {
             fixed: open("FIXED.DAT")?,
             nonfixed,
             globs: open("GLOB.FLX")?,
-            npc_dirs: npcs.iter().map(|n| (n.item.id, n.dir)).collect(),
-            npc_stats: npcs.iter().map(|n| (n.item.id, n.stats)).collect(),
-            npc_combat: npcs.iter().map(|n| (n.item.id, (n.align, n.flags))).collect(),
-            states: HashMap::default(),
+            people: People {
+                npc_dirs: npcs.iter().map(|n| (n.item.id, n.dir)).collect(),
+                npc_stats: npcs.iter().map(|n| (n.item.id, n.stats)).collect(),
+                npc_combat: npcs.iter().map(|n| (n.item.id, (n.align, n.flags))).collect(),
+                npcs,
+            },
             avatar_died: None,
             just_destroyed: Default::default(),
-            calmed: Default::default(),
-            script_made: Default::default(),
-            changelings: Default::default(),
-            resurrections: Default::default(),
             revealed_path: Default::default(),
-            map_states: Default::default(),
             passersby: Vec::new(),
-            walk_level: None,
-            walk_exact: false,
             touching: HashMap::default(),
             mana: start_mana,
             vitals: Default::default(),
-            npcs,
             maps: HashMap::default(),
             cur_map,
             actors: HashMap::default(),
@@ -378,35 +371,21 @@ impl Game {
             ethereal: Vec::new(),
             fade_ins: HashMap::default(),
             stasis: false,
-            painted: Vec::new(),
-            view_size: (640, 400),
-            view_zoom: 1.0,
-            world_under_menu: None,
             outfit: (crate::outfit::Look::Plain, crate::outfit::Helm::Plain, crate::outfit::Glow { head: false, body: false, arms: false, legs: false }),
             minimap: Default::default(),
-            sharp: Vec::new(),
             fast_items: Vec::new(),
             pending_teleport: None,
             gate_teleport: None,
             just_teleported: false,
             inputs: HashMap::default(),
             camera: crate::effects::CameraMode::Follow(AVATAR),
-            fade: None,
             cheat: false,
             cheat_worn: Vec::new(),
-            quake: 0,
-            quake_by: 0,
-            quake_offset: (0, 0),
-            inverted: false,
-            pal_transform: 0,
-            storm_shown: 1,
             airwalk: false,
             // a new game starts at eight in the morning
             time_offset: 8 * 27000,
             paths: HashMap::default(),
             path_tried: HashMap::default(),
-            approach_fails: HashMap::default(),
-            searching: HashSet::default(),
             sched_last_hour: 0,
             sched_after_scene: Vec::new(),
             sleep_menu: None,
@@ -419,29 +398,16 @@ impl Game {
             audio: crate::audio::Audio::new(&lang_dir.join("SOUND"), initial.to_ascii_uppercase(), sound, settings.0, settings.1.better_music, settings.1.album_music),
             restart: false,
             options: settings.1,
-            cam_smooth: None,
-            ambient_now: None,
-            covered_seen: (usize::MAX, crate::hash::HashMap::default()),
-            rooms_seen: (usize::MAX, HashMap::default()),
-            room_light: (0.0, 0),
-            full_hp: HashMap::default(),
-            cam_vel: (0.0, 0.0, 0.0),
-            cam_target: None,
-            lerps: HashMap::default(),
             language: initial.to_ascii_uppercase(),
-            approaching: None,
-            climb_goal: None,
-            click_fight: None,
             name_probe: None,
-            run_toggle: false,
             started: true,
             quit: false,
             avatar_name: "Avatar".to_string(),
-            blink_start: std::time::Instant::now(),
-            view_origin: (0, 0),
-            view_xf: crate::turnview::Xform { cam: (0, 0, 0), angle: 0.0, size: (640, 400) },
             turn: crate::turnview::TurnView::default(),
-            pixel_ids: Vec::new(),
+            view: ViewState::new(),
+            fights: Default::default(),
+            orders: Default::default(),
+            screen: crate::effects::ScreenEffects { storm_shown: 1, ..Default::default() },
         };
         game.data.mark_lying();
         game.load_map(cur_map);
@@ -454,7 +420,7 @@ impl Game {
             mapnum: cur_map as u16,
             ..Item::default()
         });
-        let mut mover = Mover::new(game.npc_dirs.get(&AVATAR).copied().unwrap_or(4));
+        let mut mover = Mover::new(game.people.npc_dirs.get(&AVATAR).copied().unwrap_or(4));
         mover.auto_stand = true;
         game.actors.insert(AVATAR, mover);
         game.cache_in();
@@ -471,10 +437,10 @@ impl Game {
             return;
         }
         let sources: Vec<&[u8]> = [&self.fixed, &self.nonfixed].iter().filter_map(|f| f.get(n)).collect();
-        let here: Vec<Item> = self.npcs.iter().filter(|npc| npc.map == n).map(|npc| npc.item).collect();
+        let here: Vec<Item> = self.people.npcs.iter().filter(|npc| npc.map == n).map(|npc| npc.item).collect();
         let mut map = MapData::build(&sources, &here, &self.globs, &self.data.infos);
         crate::mapfix::fix_map(n, &mut map, || MapData::build(&sources, &[], &self.globs, &self.data.infos));
-        self.npcs.retain(|npc| npc.map != n);
+        self.people.npcs.retain(|npc| npc.map != n);
         self.maps.insert(n, map);
     }
 
@@ -540,7 +506,7 @@ impl Game {
         if from == self.cur_map {
             // gone from here: no more steps or scripts of its own here
             self.actors.remove(&id);
-            self.lerps.remove(&id);
+            self.view.lerps.remove(&id);
         }
         self.move_between_maps(id, from, map, pos);
     }
@@ -557,7 +523,7 @@ impl Game {
         if let Some((&n, it)) = self.maps.iter().find_map(|(n, m)| m.get(id).map(|it| (n, it))) {
             return Some((n, *it));
         }
-        self.npcs.iter().find(|npc| npc.item.id == id).map(|npc| (npc.map, npc.item))
+        self.people.npcs.iter().find(|npc| npc.item.id == id).map(|npc| (npc.map, npc.item))
     }
 
     /// The map an actor is on (loading it if it is not loaded yet).
@@ -568,7 +534,7 @@ impl Game {
         if let Some((&n, _)) = self.maps.iter().find(|(_, m)| m.index(id).is_some()) {
             return Some(n);
         }
-        let n = self.npcs.iter().find(|npc| npc.item.id == id)?.map;
+        let n = self.people.npcs.iter().find(|npc| npc.item.id == id)?.map;
         self.load_map(n);
         self.maps[&n].index(id).is_some().then_some(n)
     }
@@ -629,15 +595,15 @@ impl Game {
                         // glide there until the next step is due, starting
                         // from wherever the actor is drawn at this moment
                         let now = std::time::Instant::now();
-                        let shown = self.lerps.get(&id).filter(|l| l.to == before).map_or(before, |l| l.position(now).0);
-                        self.lerps.insert(id, Lerp {
+                        let shown = self.view.lerps.get(&id).filter(|l| l.to == before).map_or(before, |l| l.position(now).0);
+                        self.view.lerps.insert(id, Lerp {
                             from: (shown.0 as f32, shown.1 as f32, shown.2 as f32),
                             to: after,
                             start: now,
                             seconds: mover.step_ticks() as f32 / 30.0,
                         });
                     } else if after != before {
-                        self.lerps.remove(&id);
+                        self.view.lerps.remove(&id);
                     }
                     let map = self.map_mut();
                     map.place(idx, it.x, it.y, it.z);
@@ -677,15 +643,17 @@ impl Game {
     /// Runs the world for one game tick.
     pub fn step(&mut self, input: Option<MoveInput>) {
         self.tick = self.tick.wrapping_add(1);
+        let avatar = self.avatar();
+        crate::crash::note(crate::crash::Moment { map: self.cur_map, tick: self.tick, avatar: (avatar.x, avatar.y, avatar.z), language: self.language });
         self.just_destroyed.clear();
         if input.is_some() {
             // steering takes over from walking to what was clicked
             self.cancel_approach();
         }
         // the setting "storm colours" changed during a storm: at once
-        if self.storm_shown != self.options.storm {
-            self.storm_shown = self.options.storm;
-            if self.pal_transform == 3 {
+        if self.screen.storm_shown != self.options.storm {
+            self.screen.storm_shown = self.options.storm;
+            if self.screen.pal_transform == 3 {
                 self.data.pal.set_transform(crate::palette::shown_transform(3, self.options.storm));
             }
         }
@@ -743,12 +711,12 @@ impl Game {
     /// at its zoom with the covering windows left out, scales it to `surf`
     /// and draws those windows on top. False if there is nothing to do.
     fn draw_world_under_menu(&mut self, surf: &mut Surface, opts: &mut ViewOptions, roofs_always: bool) -> bool {
-        let Some(((w, h), zoom)) = self.world_under_menu else { return false };
+        let Some(((w, h), zoom)) = self.view.under_menu else { return false };
         if (w, h) == (surf.width, surf.height) || w <= 0 || h <= 0 {
             return false;
         }
         let mut world = Surface::new(w, h);
-        let size = (self.view_size, self.view_zoom);
+        let size = (self.view.size, self.view.zoom);
         let menu = self.ui.menu.take();
         let slots = self.ui.slot_menu.take();
         let reader = self.ui.reader.take();
@@ -756,11 +724,11 @@ impl Game {
         // (the large map too: drawn with the world and scaled down with it,
         // its writing lost pixels and the smoothing blurred it)
         let worldmap = self.ui.worldmap.take();
-        self.world_under_menu = None;
-        (self.view_size, self.view_zoom) = ((w, h), zoom);
+        self.view.under_menu = None;
+        (self.view.size, self.view.zoom) = ((w, h), zoom);
         self.draw(&mut world, opts, roofs_always);
-        (self.view_size, self.view_zoom) = size;
-        self.world_under_menu = Some(((w, h), zoom));
+        (self.view.size, self.view.zoom) = size;
+        self.view.under_menu = Some(((w, h), zoom));
         self.ui.menu = menu;
         self.ui.slot_menu = slots;
         self.ui.reader = reader;
@@ -790,7 +758,7 @@ impl Game {
         let ts = self.text_scale();
         let Some(avatar) = self.map().get(AVATAR).copied() else { return };
         let height = self.data.infos.get(avatar.shape as usize).map_or(0, |si| si.z * 8);
-        let (ax, ay) = self.view_xf.to_screen(avatar.x, avatar.y, avatar.z);
+        let (ax, ay) = self.view.xf.to_screen(avatar.x, avatar.y, avatar.z);
         let head = ay - height - 8;
         let Some(font) = self.data.font_or_plain(6) else { return };
         let pal = &self.data.pal;
@@ -839,9 +807,9 @@ impl Game {
     /// `size` (for what is clicked); the test commands that play without
     /// drawing set it so too, as a window would.
     pub fn place_view(&mut self, cam: (i32, i32, i32), size: (i32, i32)) {
-        self.view_origin = view_origin(cam, size);
-        self.view_xf.cam = cam;
-        self.view_xf.size = size;
+        self.view.origin = view_origin(cam, size);
+        self.view.xf.cam = cam;
+        self.view.xf.size = size;
     }
 
     /// Draws the view centred on the Avatar.
@@ -894,9 +862,10 @@ impl Game {
         // creatures from monster eggs in sight fade in
         opts.fading = self.fading_items();
         // the Avatar climbing onto a ledge is painted in front of it
-        let climbing = self.actors.get(&AVATAR).is_some_and(|m| m.busy() && (crate::anim::CLIMB_FIRST..=crate::anim::CLIMB_LAST).contains(&m.last_anim()));
-        opts.climbing = if climbing { self.map().index(AVATAR) } else { None };
-        let Game { data: crate::gamedata::GameData { shapes, infos, pal, .. }, maps, cur_map, turn, pixel_ids, rooms_seen, .. } = self;
+        let climbing = self.actors.get(&AVATAR).filter(|m| m.busy() && (crate::anim::CLIMB_FIRST..=crate::anim::CLIMB_LAST).contains(&m.last_anim()));
+        let climbing = climbing.map(|m| (m.dir, m.anim_start().map_or(avatar.z, |s| s.2)));
+        opts.climbing = climbing.and_then(|(dir, from)| Some((self.map().index(AVATAR)?, dir, from)));
+        let Game { data: crate::gamedata::GameData { shapes, infos, pal, .. }, maps, cur_map, turn, view: ViewState { pixel_ids, rooms_seen, .. }, .. } = self;
         let map = &maps[cur_map];
 
         // hide roofs (and everything above them) while the Avatar is below one
@@ -910,7 +879,7 @@ impl Game {
             opts.hide = AVATAR;
         }
         let cam = Camera { x: cx, y: cy, z: cz };
-        self.painted = if angle == 0.0 {
+        self.view.painted = if angle == 0.0 {
             if self.options.turn_view {
                 // get the turned models of the surroundings ready, a few per picture
                 // (by time: after a map change every model is new, and 30
@@ -936,12 +905,12 @@ impl Game {
             turn.render(surf, &xf, &scene, shapes)
         };
         opts.hide = saved_hide;
-        self.view_origin = view_origin((cam.x, cam.y, cam.z), (surf.width, surf.height));
-        self.view_xf = xf;
+        self.view.origin = view_origin((cam.x, cam.y, cam.z), (surf.width, surf.height));
+        self.view.xf = xf;
         // shadows (optional), under the open sky (not in a cellar or cave), in the view as in the original (not turned)
         if self.options.shadows && angle == 0.0 && sky {
             // the light as the time of day has it
-            crate::shadows::apply(surf, pixel_ids, &self.painted, map, infos, shapes, crate::shadows::Sun::at(hour));
+            crate::shadows::apply(surf, pixel_ids, &self.view.painted, map, infos, shapes, crate::shadows::Sun::at(hour));
         }
         if let Some(lights) = &lights {
             // what gives the light keeps its own colours (lava would turn a flat yellow)
@@ -952,7 +921,7 @@ impl Game {
             // what is inside a house and what outside (lights do not
             // shine from one to the other), only under the open sky
             let (rooms, lights) = if angle == 0.0 && sky {
-                let rooms = crate::lighting::rooms(&self.painted, map, *cur_map, infos, rooms_seen);
+                let rooms = crate::lighting::rooms(&self.view.painted, map, *cur_map, infos, rooms_seen);
                 let lights: Vec<crate::lighting::Light> = lights
                     .iter()
                     .map(|l| crate::lighting::Light { inside: crate::lighting::light_inside(map, *cur_map, infos, l.item, rooms_seen), ..*l })
@@ -972,7 +941,7 @@ impl Game {
         // speech above the speakers (and the name of what is under the pointer)
         self.draw_barks(surf, &xf, ts, name_ts);
         // upside down the words turn with the world, as before
-        if self.inverted {
+        if self.screen.inverted {
             self.draw_avatar_words(surf);
         }
         self.mark_sharp(surf.width, surf.height, av_index);
@@ -990,7 +959,7 @@ impl Game {
             let it = &mut self.map_mut().items[idx];
             (it.x, it.y, it.z) = pos;
         }
-        if self.inverted {
+        if self.screen.inverted {
             surf.flip_rows();
         }
         self.ui.minimap_area = None;
@@ -1000,7 +969,7 @@ impl Game {
         self.draw_status(surf);
         self.draw_gumps(surf);
         self.draw_window_barks(surf);
-        if !self.inverted {
+        if !self.screen.inverted {
             self.draw_avatar_words(surf);
         }
         self.end_hover_label();
@@ -1022,11 +991,11 @@ impl Game {
     fn place_between_steps(&mut self) -> Vec<(usize, (i32, i32, i32))> {
         let mut moved = Vec::new();
         if !self.options.smooth_camera || self.ui.menu.is_some() {
-            self.lerps.clear();
+            self.view.lerps.clear();
             return moved;
         }
         let now = std::time::Instant::now();
-        let lerps = std::mem::take(&mut self.lerps);
+        let lerps = std::mem::take(&mut self.view.lerps);
         for (id, l) in lerps {
             let (pos, done) = l.position(now);
             let Some(idx) = self.map().index(id) else { continue };
@@ -1037,7 +1006,7 @@ impl Game {
             if !done {
                 moved.push((idx, l.to));
                 (it.x, it.y, it.z) = pos;
-                self.lerps.insert(id, l);
+                self.view.lerps.insert(id, l);
             }
         }
         moved
@@ -1106,17 +1075,17 @@ impl Game {
     /// the Avatar's patterned armour (chain mail), so that the smoothing
     /// leaves them as they are - it would blur the rings.
     fn mark_sharp(&mut self, w: i32, h: i32, av_index: Option<usize>) {
-        self.sharp.clear();
+        self.view.sharp.clear();
         let (body, head) = (crate::outfit::patterned(self.outfit.0), crate::outfit::helm_patterned(self.outfit.1));
         if !self.options.xbr() || !(body || head) {
             return;
         }
         let Some(av) = av_index else { return };
-        let Some(p) = self.painted.iter().find(|p| p.index == av).map(|p| crate::view::Painted { ..*p }) else { return };
+        let Some(p) = self.view.painted.iter().find(|p| p.index == av).map(|p| crate::view::Painted { ..*p }) else { return };
         let Some(shape) = self.data.shapes.original(p.shape) else { return };
         let Some(f) = shape.frames.get(p.frame as usize) else { return };
         let turned = self.view_turned();
-        self.sharp.resize((w * h) as usize, false);
+        self.view.sharp.resize((w * h) as usize, false);
         let helmet: crate::hash::HashSet<usize> =
             if head { crate::outfit::head_pixels(f, p.frame).unwrap_or_default().into_iter().collect() } else { Default::default() };
         for row in 0..f.height {
@@ -1137,10 +1106,10 @@ impl Game {
                 let shown = if turned {
                     self.turn.pick(x, y, None) == Some(av)
                 } else {
-                    self.pixel_ids.get((y * w + x) as usize) == Some(&(av as u32 + 1))
+                    self.view.pixel_ids.get((y * w + x) as usize) == Some(&(av as u32 + 1))
                 };
                 if shown {
-                    self.sharp[(y * w + x) as usize] = true;
+                    self.view.sharp[(y * w + x) as usize] = true;
                 }
             }
         }
@@ -1211,7 +1180,7 @@ impl Game {
     /// Size of the name of what is under the pointer (option "names on hover").
     pub fn name_scale(&self) -> f32 {
         let n = self.options.hover_names.min(crate::menu::NAME_SIZES.len() - 1);
-        (crate::menu::NAME_SIZES[n] * self.view_zoom).round().max(n as f32).max(1.0)
+        (crate::menu::NAME_SIZES[n] * self.view.zoom).round().max(n as f32).max(1.0)
     }
 
     pub fn text_scale(&self) -> f32 {
@@ -1219,7 +1188,7 @@ impl Game {
         if f == 0.0 {
             return 1.0;
         }
-        (f * self.view_zoom).round().max(1.0)
+        (f * self.view.zoom).round().max(1.0)
     }
 
     /// The answer shown at a view position, if a conversation is open.
@@ -1234,12 +1203,12 @@ impl Game {
     /// Avatar is in a house, towards 0 outside, most of the way within half
     /// a second of game time.
     fn room_light(&mut self, in_house: bool) -> f32 {
-        let (was, at) = self.room_light;
+        let (was, at) = self.view.room_light;
         let dt = self.tick.wrapping_sub(at) as f32;
         let target = if in_house { 1.0 } else { 0.0 };
         let k = if dt > 90.0 { 1.0 } else { 1.0 - (-dt / 6.0).exp() };
         let now = was + (target - was) * k;
-        self.room_light = (now, self.tick);
+        self.view.room_light = (now, self.tick);
         now
     }
 
@@ -1249,7 +1218,7 @@ impl Game {
     /// there at once).
     fn ambient_light(&mut self, target: [f32; 3]) -> [f32; 3] {
         let now = self.tick;
-        let rgb = match self.ambient_now {
+        let rgb = match self.view.ambient_now {
             Some((was, at)) => {
                 // (30 ticks are a second)
                 let dt = now.wrapping_sub(at) as f32;
@@ -1258,7 +1227,7 @@ impl Game {
             }
             None => target,
         };
-        self.ambient_now = Some((rgb, now));
+        self.view.ambient_now = Some((rgb, now));
         rgb
     }
 
@@ -1268,12 +1237,12 @@ impl Game {
     fn view_centre(&mut self) -> (i32, i32, i32) {
         let target = self.camera_position();
         // an earthquake shakes the view directly; it is not smoothed away
-        let (qx, qy) = self.quake_offset;
+        let (qx, qy) = self.screen.quake_offset;
         let quake = (2 * qx + 4 * qy, -2 * qx + 4 * qy);
         let t = ((target.0 - quake.0) as f32, (target.1 - quake.1) as f32, target.2 as f32);
         let now = std::time::Instant::now();
         let far = |c: (f32, f32, f32)| (c.0 - t.0).abs().max((c.1 - t.1).abs()) > 1500.0;
-        match self.cam_smooth {
+        match self.view.cam_smooth {
             // The camera is pulled after its target like on a damped spring.
             // A walking figure covers a different distance with every step
             // of its animation; a camera fixed to it would scroll the whole
@@ -1287,11 +1256,11 @@ impl Game {
             Some((c, last)) if self.options.smooth_camera && self.ui.menu.is_none() && !far(c) && !self.scene_follows_avatar() => {
                 // Once the target stands still the camera closes up quickly:
                 // a view creeping on pixel by pixel shimmers as well.
-                let since = match self.cam_target {
+                let since = match self.view.cam_target {
                     Some((p, since)) if p == t => since,
                     _ => now,
                 };
-                self.cam_target = Some((t, since));
+                self.view.cam_target = Some((t, since));
                 let resting = now.duration_since(since).as_secs_f32() > 0.05;
                 let smooth_time = if resting { 0.06 } else { 0.2 };
                 let dt = now.duration_since(last).as_secs_f32().min(0.1);
@@ -1304,7 +1273,7 @@ impl Game {
                     *v = (*v - omega * temp) * decay;
                     t + (change + temp) * decay
                 };
-                let mut v = self.cam_vel;
+                let mut v = self.view.cam_vel;
                 let mut c = (glide(c.0, t.0, &mut v.0), glide(c.1, t.1, &mut v.1), glide(c.2, t.2, &mut v.2));
                 let gap = (c.0 - t.0).abs().max((c.1 - t.1).abs()).max((c.2 - t.2).abs());
                 // (four world units are one pixel of the view)
@@ -1312,13 +1281,13 @@ impl Game {
                     // arrived
                     (c, v) = (t, (0.0, 0.0, 0.0));
                 }
-                self.cam_vel = v;
-                self.cam_smooth = Some((c, now));
+                self.view.cam_vel = v;
+                self.view.cam_smooth = Some((c, now));
                 (c.0.round() as i32 + quake.0, c.1.round() as i32 + quake.1, c.2.round() as i32)
             }
             _ => {
-                self.cam_vel = (0.0, 0.0, 0.0);
-                self.cam_smooth = Some((t, now));
+                self.view.cam_vel = (0.0, 0.0, 0.0);
+                self.view.cam_smooth = Some((t, now));
                 target
             }
         }
@@ -1334,15 +1303,15 @@ impl Game {
     pub fn camera_gliding(&self) -> bool {
         let t = self.camera_position();
         self.options.smooth_camera
-            && (!self.lerps.is_empty()
-                || self.cam_smooth.is_some_and(|(c, _)| (c.0 - t.0 as f32).abs() + (c.1 - t.1 as f32).abs() + (c.2 - t.2 as f32).abs() >= 1.0)
-                || self.cam_vel != (0.0, 0.0, 0.0))
+            && (!self.view.lerps.is_empty()
+                || self.view.cam_smooth.is_some_and(|(c, _)| (c.0 - t.0 as f32).abs() + (c.1 - t.1 as f32).abs() + (c.2 - t.2 as f32).abs() >= 1.0)
+                || self.view.cam_vel != (0.0, 0.0, 0.0))
     }
 
     /// Where an item was drawn in the last frame (view coordinates).
     pub fn shown_at(&self, id: u16) -> Option<(i32, i32)> {
         let idx = self.map().index(id)?;
-        self.painted.iter().find(|p| p.index == idx).map(|p| (p.sx, p.sy))
+        self.view.painted.iter().find(|p| p.index == idx).map(|p| (p.sx, p.sy))
     }
 
     /// Is the backpack on the Avatar's back drawn at a view position? It is
@@ -1356,7 +1325,7 @@ impl Game {
             return false;
         }
         let Some(av) = self.map().index(AVATAR) else { return false };
-        let Some(p) = self.painted.iter().rev().find(|p| p.index == av) else { return false };
+        let Some(p) = self.view.painted.iter().rev().find(|p| p.index == av) else { return false };
         let Some(shape) = self.data.shapes.original(crate::outfit::AVATAR_SHAPE) else { return false };
         let Some(f) = shape.frames.get(p.frame as usize) else { return false };
         let col = if p.flipped { p.sx + f.xoff - 1 - x } else { x - (p.sx - f.xoff) };
@@ -1377,7 +1346,7 @@ impl Game {
     /// that they hit what is seen there; walking by keys or towards the
     /// pointer stays turned round, as in the original.
     pub fn unflip_y(&self, y: i32) -> i32 {
-        if self.inverted { self.view_size.1 - 1 - y } else { y }
+        if self.screen.inverted { self.view.size.1 - 1 - y } else { y }
     }
 
     /// The object id of the topmost item drawn at a screen position.
@@ -1401,7 +1370,7 @@ impl Game {
             let id = self.map().items.get(index)?.id;
             return (id != 0 && id != skip).then_some(id);
         }
-        for p in self.painted.iter().rev() {
+        for p in self.view.painted.iter().rev() {
             let Some(shape) = self.data.shapes.get(p.shape) else { continue };
             let Some(f) = shape.frames.get(p.frame as usize) else { continue };
             let col = if p.flipped { p.sx + f.xoff - 1 - x } else { x - (p.sx - f.xoff) };
@@ -1524,7 +1493,7 @@ impl Game {
             return;
         }
         // searching a body: its belongings show in the window for the dead
-        if use_it && id != AVATAR && self.states.get(&id).is_some_and(|s| s.dead) {
+        if use_it && id != AVATAR && self.fights.states.get(&id).is_some_and(|s| s.dead) {
             const BODY_GUMP: u32 = 12;
             if self.ui.gumps.iter().any(|g| g.owner == id) {
                 self.close_gump(id);
@@ -1593,7 +1562,7 @@ impl Game {
         if !self.audio.spatial() {
             return;
         }
-        let half = (self.view_size.0 / 2).max(1) as f32;
+        let half = (self.view.size.0 / 2).max(1) as f32;
         let spots: Vec<(u16, f32, f32)> = self
             .audio
             .sound_objects()

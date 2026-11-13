@@ -276,19 +276,19 @@ impl Game {
             return false;
         }
         let (map, tick) = (self.cur_map, self.tick);
-        if self.covered_seen.0 != map {
-            self.covered_seen = (map, HashMap::default());
+        if self.view.covered_seen.0 != map {
+            self.view.covered_seen = (map, HashMap::default());
         }
         // (only for the same thing at the same place: things made by spells
         // come and go, and a new one may get the number of an old one)
         let key = (it.shape, it.x, it.y, it.z);
-        if let Some(&(was, at, of)) = self.covered_seen.1.get(&it.id) {
+        if let Some(&(was, at, of)) = self.view.covered_seen.1.get(&it.id) {
             if of == key && tick.wrapping_sub(at) < 60 + it.id as u32 % 60 {
                 return was;
             }
         }
         let now = self.covered(it, si);
-        self.covered_seen.1.insert(it.id, (now, tick, key));
+        self.view.covered_seen.1.insert(it.id, (now, tick, key));
         now
     }
 }

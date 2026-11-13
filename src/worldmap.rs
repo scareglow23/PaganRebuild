@@ -327,8 +327,8 @@ impl Game {
         // the smoothing (option "smooth graphics") would blur the map's
         // fine dots and the writing: all of it stays sharp
         if self.options.xbr() {
-            self.sharp.clear();
-            self.sharp.resize((w * h) as usize, true);
+            self.view.sharp.clear();
+            self.view.sharp.resize((w * h) as usize, true);
         }
         let font_h = self.data.font.as_ref().map_or(8, |f| f.height);
         let l = layout(w, h, font_h);

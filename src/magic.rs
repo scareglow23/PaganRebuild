@@ -388,7 +388,7 @@ impl Game {
             cur
         };
         if carried_by(self, container) == AVATAR && carried_by(self, id) != AVATAR {
-            let strength = self.states.get(&AVATAR).map_or(15, |s| s.strength);
+            let strength = self.fights.states.get(&AVATAR).map_or(15, |s| s.strength);
             if self.carried_weight() + self.weight(id) > 40 * strength {
                 return Err("heavy");
             }

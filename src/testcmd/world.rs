@@ -507,7 +507,7 @@ fn cmd_dirs(game: &mut Game, _surf: &mut Surface, _opts: &mut ViewOptions, _st: 
             Some(m) => (m.dir as i32, m.shown().0 as i32, game.map().get(id).map_or(-1, |it| it.frame as i32)),
             None => (-1, -1, -1),
         };
-        println!("dirs: {id} dir {dir} anim {anim} frame {frame} npc_dir {:?}", game.npc_dirs.get(&id));
+        println!("dirs: {id} dir {dir} anim {anim} frame {frame} npc_dir {:?}", game.people.npc_dirs.get(&id));
     }
     Ok(Flow::Done)
 }

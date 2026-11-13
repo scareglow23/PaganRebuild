@@ -27,7 +27,7 @@ PaganRebuild is an engine for Ultima VIII: Pagan written in Rust. It reads the o
 
 The original game files are needed to run the program and the tests; they are not in the repository and must never be added, nor music files. The program looks for a folder with `ENGLISH/STATIC/U8SHAPES.FLX` (or `GERMAN`, `FRENCH` with `--lang`) in the folders above it, or uses `--game <dir>`.
 
-Savegames, settings (`settings.ini`, `keys.ini`) and an optional SoundFont live in the user folder: `%APPDATA%\pagan` on Windows (`APPDATA` set in the environment wins everywhere). `PAGAN_SAVE_DIR` moves the savegames. Tests point both at scratch folders; never write to a player's own folder.
+Savegames, settings (`settings.ini`, `keys.ini`) and an optional SoundFont live in the user folder: `%APPDATA%\pagan` on Windows (`APPDATA` set in the environment wins everywhere). `PAGAN_SAVE_DIR` moves the savegames. Tests point both at scratch folders; never write to a player's own folder. A crash of the windowed game is written to `crash.log` there (`src/crash.rs`: what failed, where in the code, where the game was); runs with `--screenshot` show it on the console only.
 
 ## Running without a window
 
@@ -38,7 +38,7 @@ PaganRebuild --screenshot out.png --do "t60;look:1;t30"
 PaganRebuild --screenshot out.png --do "loadslot:5;t5;zoom:75;inv"
 ```
 
-`--do` takes test commands separated by `;` (all listed in `--help`); the picture is written after them. `PAGAN_XBR=1` writes the picture with the xBR filter at twice the size.
+`--do` takes test commands separated by `;` (all listed in `--help`); the picture is written after them. `PAGAN_XBR=1` writes the picture with the xBR filter at twice the size. All switches of the environment (`PAGAN_...`: what is printed, timed, where files go) are listed with what they do in `src/debug.rs`, which reads them once at the start; a new one goes there, not into the code that uses it.
 
 ## Tests
 

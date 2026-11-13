@@ -1,6 +1,6 @@
 # Option "outline when hidden": only his helmet still shows over the wall.
-# At "mostly" (80 %) no outline is drawn yet, at "a little" (25 %) it is
+# At "mostly" (80 %) no outline is drawn, at "a little" (25 %) it is
 args: --map 50 --pos 5763,2410,48
-do: option:map_fade,off;option:avatar_outline,3;t5;outline;option:avatar_outline,1;outline
+do: option:map_fade,off;option:avatar_outline,3;t5;pickat:0,0;t20;outline;option:avatar_outline,1;pickat:0,0;t20;outline
 expect: outline: 0 pixels
 expect: outline: 608 pixels

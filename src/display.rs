@@ -54,8 +54,8 @@ pub fn present(window: &mut Window, surf: &Surface, shown: &mut Surface, up: &mu
     let src = (surf.width as usize, surf.height as usize);
     up.filter = if window.display_size().0 > src.0 { game.options.pixels } else { crate::menu::PIXELS_SHARP };
     up.sharp.clear();
-    if up.filter == crate::menu::PIXELS_XBR && game.sharp.len() == src.0 * src.1 {
-        up.sharp.extend_from_slice(&game.sharp);
+    if up.filter == crate::menu::PIXELS_XBR && game.view.sharp.len() == src.0 * src.1 {
+        up.sharp.extend_from_slice(&game.view.sharp);
     }
     up.ready = true;
     Ok(())

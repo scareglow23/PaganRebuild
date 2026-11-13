@@ -107,6 +107,26 @@ pub enum CameraMode {
     Scroll((i32, i32, i32), (i32, i32, i32), u32, u32),
 }
 
+/// What changes the whole picture rather than a thing in it.
+#[derive(Default)]
+pub struct ScreenEffects {
+    /// A colour laid over the view, fading in or out.
+    pub(crate) fade: Option<Fade>,
+    /// Strength of the earthquake shaking the view (0 = none), and where
+    /// it has pushed the view in this tick (screen pixels).
+    pub(crate) quake: i32,
+    pub(crate) quake_offset: (i32, i32),
+    /// The script process that set the earthquake (0: none): one started
+    /// before it may not weaken or end it.
+    pub(crate) quake_by: u16,
+    /// The view is shown upside down (a spell).
+    pub(crate) inverted: bool,
+    /// Colour transform of the palette (storms).
+    pub(crate) pal_transform: u8,
+    /// The "storm colours" setting the colours on screen were made with.
+    pub(crate) storm_shown: usize,
+}
+
 /// A colour laid over the whole view, fading between two strengths (0..=256).
 #[derive(Clone, Copy)]
 pub struct Fade {
@@ -186,13 +206,13 @@ impl Game {
         // it until the space between them is small, from whatever side (by
         // the corners a big golem was out of reach from one side). Scripts
         // keep the old measure: they lead him into gates and onto marks.
-        let by_gap = pf.actor == AVATAR && pf.target != 0 && self.approaching == Some(pf.target);
+        let by_gap = pf.actor == AVATAR && pf.target != 0 && self.orders.approaching == Some(pf.target);
         let Some((tx, ty, reach)) = self.walk_goal(pf, &it, by_gap) else { return true };
         pf.ticks += 1;
         let (dx, dy) = (tx - it.x, ty - it.y);
         // sent by a click to a spot on another level: only there is he there
-        let level = if pf.actor == AVATAR && pf.target == 0 { self.walk_level } else { None };
-        let exact = level.is_some() && self.walk_exact;
+        let level = if pf.actor == AVATAR && pf.target == 0 { self.orders.walk_level } else { None };
+        let exact = level.is_some() && self.orders.walk_exact;
         let reach = if exact { reach.min(12) } else { reach };
         let arrived = dx.abs().max(dy.abs()) <= reach && on_level(level, it.z);
         // Sent by the player to a spot on the ground, the Avatar keeps the
@@ -254,7 +274,7 @@ impl Game {
             dir += pf.detour.0 as i32;
         }
         if !self.actors.contains_key(&pf.actor) {
-            let facing = self.npc_dirs.get(&pf.actor).copied().unwrap_or(4);
+            let facing = self.people.npc_dirs.get(&pf.actor).copied().unwrap_or(4);
             self.actors.insert(pf.actor, Mover::new(facing));
         }
         // heading for a point below an edge: stepping off it is meant
@@ -269,7 +289,7 @@ impl Game {
             return true;
         }
         // the player's Avatar walks or runs as he has chosen
-        let run = pf.actor == AVATAR && self.approaching.is_some() && self.run_toggle;
+        let run = pf.actor == AVATAR && self.orders.approaching.is_some() && self.orders.run_toggle;
         self.inputs.insert(pf.actor, MoveInput { dir: dir.rem_euclid(8) as u8, run });
         false
     }
@@ -602,7 +622,7 @@ impl Game {
             }
         };
         // an earthquake pushes the view around (the offset is in screen pixels)
-        let (qx, qy) = self.quake_offset;
+        let (qx, qy) = self.screen.quake_offset;
         (x + 2 * qx + 4 * qy, y - 2 * qx + 4 * qy, z)
     }
 
@@ -849,8 +869,8 @@ impl Game {
     /// Advances camera glides and fades by one tick.
     pub fn tick_effects(&mut self) {
         self.data.pal.tick();
-        self.quake_offset = if self.quake > 0 {
-            let q = self.quake.min(8);
+        self.screen.quake_offset = if self.screen.quake > 0 {
+            let q = self.screen.quake.min(8);
             let mut r = || (self.rng.next() % (2 * q as u32 + 1)) as i32 - q;
             (r(), r())
         } else {
@@ -859,11 +879,11 @@ impl Game {
         if let CameraMode::Scroll(a, b, t, total) = self.camera {
             self.camera = if t + 1 >= total { CameraMode::Fixed(b.0, b.1, b.2) } else { CameraMode::Scroll(a, b, t + 1, total) };
         }
-        if let Some(f) = &mut self.fade {
+        if let Some(f) = &mut self.screen.fade {
             f.elapsed += 1;
             // a finished fade to "nothing" is over, a fade to black stays
             if f.elapsed >= f.steps && f.to == 0 {
-                self.fade = None;
+                self.screen.fade = None;
             }
         }
     }
@@ -872,7 +892,7 @@ impl Game {
         // continue from whatever is on screen now; fading out to another
         // colour than the one on screen, from that colour
         let mut fade = Fade::new(rgb, from, to, steps);
-        match self.fade {
+        match self.screen.fade {
             Some(f) if f.rgb == rgb => fade.from = f.level(),
             Some(f) if to > from && f.level() > 0 => {
                 fade.from = f.level();
@@ -880,13 +900,13 @@ impl Game {
             }
             _ => {}
         }
-        self.fade = Some(fade);
+        self.screen.fade = Some(fade);
         self.add_native(crate::vm::Kind::Delay(steps.max(1)), 0, 0) as u32
     }
 
     /// Lays the current fade colour over the finished frame.
     pub fn draw_fade(&self, surf: &mut Surface) {
-        let Some(f) = self.fade else { return };
+        let Some(f) = self.screen.fade else { return };
         let a = f.level().clamp(0, 256) as u32;
         if a == 0 {
             return;
@@ -908,6 +928,6 @@ impl Game {
     /// but a walk the player sent him on (a click, going for an enemy,
     /// climbing on the way) does not count - a new order replaces it.
     pub fn player_may_order(&self) -> bool {
-        !self.stasis && self.ask.is_none() && (!self.inputs.contains_key(&AVATAR) || self.approaching.is_some() || self.climb_goal.is_some())
+        !self.stasis && self.ask.is_none() && (!self.inputs.contains_key(&AVATAR) || self.orders.approaching.is_some() || self.orders.climb_goal.is_some())
     }
 }

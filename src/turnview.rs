@@ -271,7 +271,7 @@ impl TurnView {
         // Walls are marked as hiding what is behind them; they and the
         // ground make good cubes, anything else only if it fills its box.
         let boxy = hit >= MIN_COVER * opaque && hit >= MIN_FILL * inside;
-        if std::env::var_os("PAGAN_MODELS").is_some() {
+        if crate::debug::env().models {
             eprintln!("model shape {shape} frame {frame} box {xd}x{yd}x{zd} cover {:.2} fill {:.2} occl {} land {} solid {}",
                       hit / opaque, hit / inside, info.occl, info.land, info.solid);
         }
@@ -388,7 +388,7 @@ impl TurnView {
                 _ => self.add_board(&mut list, shapes, scene, &proj, quarter, index, &it, &info, model.as_deref()),
             }
         }
-        if std::env::var_os("PAGAN_TRACE").is_some() {
+        if crate::debug::env().trace {
             let cubes: usize = list.jobs.iter().map(|j| match j { Job::Cubes { slot, .. } => list.cubes[*slot].len(), _ => 0 }).sum();
             eprintln!("turned picture: {} items, {cubes} cubes, {} models cached", list.painted.len(), self.models.len());
         }
@@ -542,6 +542,10 @@ impl Grid {
         let mut covered = vec![false; (f.width * f.height).max(0) as usize];
         let (nx, ny, nz) = ((xd / XY).max(1), (yd / XY).max(1), (zd / Z).max(1));
         let mut grid = Grid { nx, ny, nz, cells: vec![None; (nx * ny * nz) as usize] };
+        // where to look for a drawn pixel around the middle of a cube,
+        // nearest first (worked out once: for every cube it took longer
+        // than the rest of its work)
+        let around: Vec<(i32, i32)> = (0..=reach).flat_map(ring).collect();
         for kz in 0..nz {
             for ky in 0..ny {
                 for kx in 0..nx {
@@ -553,7 +557,7 @@ impl Grid {
                         covered[(row * f.width + col) as usize] = true;
                     }
                     let i = grid.index(kx, ky, kz);
-                    grid.cells[i] = (0..=reach).flat_map(ring).find_map(|(ddx, ddy)| {
+                    grid.cells[i] = around.iter().find_map(|&(ddx, ddy)| {
                         let (col, row) = frame_pixel(f, flipped, sx + ddx, sy + ddy)?;
                         let c = f.pixels[(row * f.width + col) as usize];
                         (c != TRANSPARENT).then_some(c as u8)
@@ -900,23 +904,23 @@ fn fill_gaps(surf: &mut Surface, ids: &[u32]) {
 impl crate::game::Game {
     /// World position to position in the view, as last drawn.
     pub fn to_screen(&self, x: i32, y: i32, z: i32) -> (i32, i32) {
-        self.view_xf.to_screen(x, y, z)
+        self.view.xf.to_screen(x, y, z)
     }
 
     /// The world position (x, y) at height `z` under a view position.
     pub fn to_world(&self, sx: i32, sy: i32, z: i32) -> (i32, i32) {
-        self.view_xf.to_world(sx, self.unflip_y(sy), z)
+        self.view.xf.to_world(sx, self.unflip_y(sy), z)
     }
 
     /// Is the view turned away from the original side?
     pub fn view_turned(&self) -> bool {
-        self.view_xf.angle != 0.0
+        self.view.xf.angle != 0.0
     }
 
     /// A direction meant on screen (0 = up, clockwise) as a direction in
     /// the world, with the view turned.
     pub fn unturn_dir(&self, dir: u8) -> u8 {
-        (dir as i32 - 2 * self.view_xf.quarter()).rem_euclid(8) as u8
+        (dir as i32 - 2 * self.view.xf.quarter()).rem_euclid(8) as u8
     }
 
     /// Turns the view by a quarter (+1 / -1), if that is switched on.
@@ -932,7 +936,7 @@ impl crate::game::Game {
         let flipped = it.flags & FLG_FLIPPED != 0;
         let (action, n, dir) = match self.actors.get(&it.id) {
             Some(m) => (m.shown().0, m.shown().1, m.dir),
-            None => (crate::anim::STAND, 0, self.npc_dirs.get(&it.id).copied().unwrap_or(4)),
+            None => (crate::anim::STAND, 0, self.people.npc_dirs.get(&it.id).copied().unwrap_or(4)),
         };
         let dir = (dir as i32 + 2 * quarter).rem_euclid(8) as u8;
         match self.data.anims.action(it.shape, action).or_else(|| self.data.anims.action(it.shape, crate::anim::STAND)) {

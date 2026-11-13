@@ -121,8 +121,8 @@ fn cmd_journal(game: &mut Game, _surf: &mut Surface, _opts: &mut ViewOptions, _s
 
 /// fade  tells whether a fade (to black or a colour) lies over the picture
 fn cmd_fade(game: &mut Game, _surf: &mut Surface, _opts: &mut ViewOptions, _st: &mut State, _name: &str, _arg: &str, _cmd: &str) -> Result<Flow, String> {
-    println!("fade: {}", if game.fade.is_some() { "on" } else { "none" });
-    println!("quake: {}", game.quake);
+    println!("fade: {}", if game.screen.fade.is_some() { "on" } else { "none" });
+    println!("quake: {}", game.screen.quake);
     Ok(Flow::Done)
 }
 
@@ -157,14 +157,14 @@ fn cmd_fx(game: &mut Game, _surf: &mut Surface, _opts: &mut ViewOptions, _st: &m
     let num = |s: &str| number(s, cmd);
     let av = game.avatar();
     if arg == "quake?" {
-        println!("quake: {}", game.quake);
+        println!("quake: {}", game.screen.quake);
     } else if let Some(n) = arg.strip_prefix("pal") {
-        game.pal_transform = num(n)? as u8;
-        game.data.pal.set_transform(game.pal_transform);
+        game.screen.pal_transform = num(n)? as u8;
+        game.data.pal.set_transform(game.screen.pal_transform);
     } else if let Some(n) = arg.strip_prefix("quake") {
-        game.quake = num(n)?;
+        game.screen.quake = num(n)?;
     } else if arg == "invert" {
-        game.inverted = !game.inverted;
+        game.screen.inverted = !game.screen.inverted;
     } else if arg == "fireball" {
         game.launch_fireball((av.x + 400, av.y - 300, av.z));
     } else if arg == "airwalk" {
@@ -185,7 +185,7 @@ fn cmd_hours(game: &mut Game, _surf: &mut Surface, _opts: &mut ViewOptions, _st:
 
 /// people  every permanent character: map, position, dead
 fn cmd_people(game: &mut Game, _surf: &mut Surface, _opts: &mut ViewOptions, _st: &mut State, _name: &str, _arg: &str, _cmd: &str) -> Result<Flow, String> {
-    let mut ids: Vec<u16> = game.npc_stats.keys().copied().collect();
+    let mut ids: Vec<u16> = game.people.npc_stats.keys().copied().collect();
     ids.sort();
     for id in ids {
         if let Some((m, it)) = game.actor_anywhere(id) {
@@ -197,11 +197,11 @@ fn cmd_people(game: &mut Game, _surf: &mut Surface, _opts: &mut ViewOptions, _st
 
 /// the permanent characters with their fight values
 fn cmd_npclist(game: &mut Game, _surf: &mut Surface, _opts: &mut ViewOptions, _st: &mut State, _name: &str, _arg: &str, _cmd: &str) -> Result<Flow, String> {
-    let mut ids: Vec<u16> = game.npc_stats.keys().copied().collect();
+    let mut ids: Vec<u16> = game.people.npc_stats.keys().copied().collect();
     ids.sort();
     for id in ids {
-        let (st, (al, fl)) = (game.npc_stats[&id], game.npc_combat.get(&id).copied().unwrap_or((0, 0)));
-        let n = game.npcs.iter().find(|n| n.item.id == id);
+        let (st, (al, fl)) = (game.people.npc_stats[&id], game.people.npc_combat.get(&id).copied().unwrap_or((0, 0)));
+        let n = game.people.npcs.iter().find(|n| n.item.id == id);
         println!("npc {id}: shape {} map {} str {} dex {} int {} hp {} align {al:02X} flags {fl:06X}",
                  n.map_or(0, |n| n.item.shape), n.map_or(0, |n| n.map), st[0], st[1], st[2], st[3]);
     }

@@ -1,0 +1,9 @@
+# Climbing onto a roof in the corner where two houses meet (Tenebrae, map 39): the Avatar stands behind the roof of the house next door, which goes on hiding his body while he pulls himself up, and the wall under its eaves does not show through
+args: --map 39 --pos 14918,12282,48
+do: t5;walkclick:290,170;t8;where:1;pickat:297,194;pickat:307,190;pickat:318,197;t60;where:1
+expect: where 1: 14918,12282,57
+expect: pickat 297,194: id 17823 shape  412
+expect: pickat 307,190: id 17823 shape  412
+expect: pickat 318,197: id 17823 shape  412
+reject: shape  149 frame   1 at 14975,12319,48
+expect: where 1: 14862,12322,88

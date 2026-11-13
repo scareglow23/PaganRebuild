@@ -1376,7 +1376,7 @@ impl Audio {
                         m.insert(num as i32, made);
                     }
                 }
-                if std::env::var_os("PAGAN_SOUNDINFO").is_some() {
+                if crate::debug::env().sound_info {
                     eprintln!("better sound: {} effects ready after {} ms", cache.lock().map_or(0, |m| m.len()), start.elapsed().as_millis());
                 }
             });

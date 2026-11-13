@@ -88,6 +88,37 @@ pub fn load_monsters() -> HashMap<u32, MonsterInfo> {
 /// The side of the ordinary people (alignment bit).
 pub const TOWNSFOLK: u8 = 0x01;
 
+/// Who fights and how the creatures stand to it: the tables of the
+/// fights, kept by the number of the creature.
+#[derive(Default)]
+pub struct Fights {
+    /// The fight states of the actors of the map the Avatar is on.
+    pub(crate) states: HashMap<u16, ActorState>,
+    /// The fight states of the creatures of the maps the Avatar is not on
+    /// (their numbers from 256 on belong to one map: on another the same
+    /// number is something else, a floor tile, say).
+    pub(crate) map_states: HashMap<usize, HashMap<u16, ActorState>>,
+    /// Creatures a script took out of a fight (Confusion Blast ...): they
+    /// do not start another one on sight, only when attacked again.
+    pub(crate) calmed: crate::hash::HashSet<u16>,
+    /// Creatures a script made (createActor) for a scene: they do not start
+    /// fights on sight, only when their script puts them in one (or they
+    /// are attacked). The ghouls at Lothian's ceremony are such.
+    pub(crate) script_made: crate::hash::HashSet<u16>,
+    /// Changelings in the middle of taking the Avatar's shape:
+    /// the step they are at and when it ends.
+    pub(crate) changelings: HashMap<u16, Shift>,
+    /// Killed creatures that get up again, and the tick when.
+    pub(crate) resurrections: HashMap<u16, u32>,
+    /// Creatures whose walks to their enemy brought them no closer: the
+    /// gap after the last walk and how many walks in a row failed.
+    pub(crate) approach_fails: HashMap<u16, (i32, u32)>,
+    /// Creatures on their way to where they last saw the vanished Avatar.
+    pub(crate) searching: crate::hash::HashSet<u16>,
+    /// Health the creatures started with, for the bars above them.
+    pub(crate) full_hp: HashMap<u16, i32>,
+}
+
 /// What changes about an actor in a fight.
 #[derive(Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
 pub struct ActorState {
@@ -167,12 +198,12 @@ impl Game {
     /// savegame for the permanent characters, from the creature table for
     /// hatched monsters.
     pub fn state(&mut self, id: u16) -> ActorState {
-        if let Some(s) = self.states.get(&id) {
+        if let Some(s) = self.fights.states.get(&id) {
             return *s;
         }
         let shape = self.map().get(id).map_or(0, |it| it.shape);
-        let s = if let Some(stats) = self.npc_stats.get(&id).copied() {
-            let (align, flags) = self.npc_combat.get(&id).copied().unwrap_or((0, 0));
+        let s = if let Some(stats) = self.people.npc_stats.get(&id).copied() {
+            let (align, flags) = self.people.npc_combat.get(&id).copied().unwrap_or((0, 0));
             ActorState {
                 strength: stats[0] as i32,
                 dex: stats[1] as i32,
@@ -196,14 +227,14 @@ impl Game {
         } else {
             ActorState { hp: 10, strength: 10, dex: 10, ..ActorState::default() }
         };
-        self.states.insert(id, s);
-        self.full_hp.insert(id, s.hp);
+        self.fights.states.insert(id, s);
+        self.fights.full_hp.insert(id, s.hp);
         s
     }
 
     pub fn state_mut(&mut self, id: u16) -> &mut ActorState {
         self.state(id);
-        self.states.get_mut(&id).unwrap()
+        self.fights.states.get_mut(&id).unwrap()
     }
 
     pub fn max_hp(&mut self, id: u16) -> i32 {
@@ -212,7 +243,7 @@ impl Game {
 
     pub fn mover(&mut self, id: u16) -> &mut Mover {
         if !self.actors.contains_key(&id) {
-            let dir = self.npc_dirs.get(&id).copied().unwrap_or(4);
+            let dir = self.people.npc_dirs.get(&id).copied().unwrap_or(4);
             self.actors.insert(id, Mover::new(dir));
         }
         self.actors.get_mut(&id).unwrap()
@@ -221,7 +252,7 @@ impl Game {
     /// Plays an animation for an actor; false if its shape has none.
     pub fn animate(&mut self, id: u16, action: u32) -> bool {
         let Some(it) = self.map().get(id).copied() else { return false };
-        let mut mover = self.actors.remove(&id).unwrap_or_else(|| Mover::new(self.npc_dirs.get(&id).copied().unwrap_or(4)));
+        let mut mover = self.actors.remove(&id).unwrap_or_else(|| Mover::new(self.people.npc_dirs.get(&id).copied().unwrap_or(4)));
         let ok = mover.play(action, &it, &mut self.data.anims);
         self.actors.insert(id, mover);
         ok
@@ -250,7 +281,7 @@ impl Game {
         }
         self.state_mut(id).in_combat = on;
         if on {
-            self.calmed.remove(&id);
+            self.fights.calmed.remove(&id);
         }
         if on && id != AVATAR {
             // a stroll it was on ends here, or it would walk on and never
@@ -281,7 +312,7 @@ impl Game {
 
     /// Is the Avatar's weapon drawn?
     pub fn fighting(&self) -> bool {
-        self.states.get(&AVATAR).is_some_and(|s| s.in_combat && !s.dead)
+        self.fights.states.get(&AVATAR).is_some_and(|s| s.in_combat && !s.dead)
     }
 
     /// The player draws or puts away the weapon.
@@ -297,7 +328,7 @@ impl Game {
     pub fn avatar_attack(&mut self, dir: Option<u8>, kick: bool) {
         let s = self.state(AVATAR);
         if !s.in_combat || s.dead || self.stasis || self.mover(AVATAR).busy() {
-            if std::env::var_os("PAGAN_DEBUG").is_some() {
+            if crate::debug::env().debug {
                 let (stasis, busy, last) = (self.stasis, self.mover(AVATAR).busy(), self.mover(AVATAR).last_anim());
                 eprintln!("attack refused: combat {} dead {} stasis {stasis} busy {busy} last {last}", s.in_combat, s.dead);
             }
@@ -333,7 +364,7 @@ impl Game {
         let Some(it) = self.map().get(attacker).copied() else { return false };
         let Some(si) = self.data.infos.get(it.shape as usize).copied() else { return false };
         let dir = self.mover(attacker).dir as usize;
-        if attacker == AVATAR && std::env::var_os("PAGAN_DEBUG").is_some() {
+        if attacker == AVATAR && crate::debug::env().debug {
             eprintln!("avatar swing: dir {dir} range {range} at {},{},{}", it.x, it.y, it.z);
         }
         const XF: [i32; 8] = [0, 1, 1, 1, 0, -1, -1, -1];
@@ -530,7 +561,7 @@ impl Game {
         // armour and protection count against every hit, also one without
         // an attacker (the fire bombs of a trapped book), as in the original
         let damage = self.attack_damage(victim, attacker, damage, damage_type, attacker_is_actor && roll);
-        if std::env::var_os("PAGAN_DEBUG").is_some() {
+        if crate::debug::env().debug {
             eprintln!("hit: {attacker} -> {victim}: raw {raw} type {damage_type:X} -> {damage}");
         }
         let volume = self.sfx_volume(victim);
@@ -541,7 +572,7 @@ impl Game {
         if victim != AVATAR && attacker_is_actor {
             let s = self.state(victim);
             let was_fighting = s.in_combat;
-            let busy = was_fighting && s.target != 0 && s.target != attacker && self.states.get(&s.target).is_some_and(|t| !t.dead);
+            let busy = was_fighting && s.target != 0 && s.target != attacker && self.fights.states.get(&s.target).is_some_and(|t| !t.dead);
             let foe = attacker == AVATAR || self.state(attacker).alignment & s.enemy_alignment != 0;
             if !(busy && !foe) {
                 self.set_in_combat(victim, true);
@@ -591,7 +622,7 @@ impl Game {
     /// `by_enemy`: killed by an enemy, not by the world (see `receive_hit_by`).
     pub fn die_by(&mut self, id: u16, _dir: u8, by_enemy: bool) {
         // a changeling in the Avatar's shape dies in its own
-        if self.changelings.remove(&id).is_some() {
+        if self.fights.changelings.remove(&id).is_some() {
             self.set_shape(id, CHANGELING);
         }
         {
@@ -643,7 +674,7 @@ impl Game {
             return;
         }
         let wait = self.random(5, 29) as u32 * 30;
-        self.resurrections.insert(id, self.tick.wrapping_add(wait));
+        self.fights.resurrections.insert(id, self.tick.wrapping_add(wait));
     }
 
     /// Someone attacked who was not fighting yet: the others of its side
@@ -662,7 +693,7 @@ impl Game {
             .map(|i| self.map().items[i])
             // (not those a script put there peacefully: the theurgists on
             // the Plane of Air stay out of the skellots' fights)
-            .filter(|it| it.in_world() && it.fast && it.id != victim && it.id != AVATAR && it.id != attacker && !it.dead && !self.script_made.contains(&it.id))
+            .filter(|it| it.in_world() && it.fast && it.id != victim && it.id != AVATAR && it.id != attacker && !it.dead && !self.fights.script_made.contains(&it.id))
             .filter(|it| (it.x - v.x).abs() <= HELP_REACH && (it.y - v.y).abs() <= HELP_REACH && self.can_fight(it))
             .filter(|it| if v.shape == GUARD { it.shape == GUARD } else { !NEVER_HELP.contains(&it.shape) })
             .map(|it| it.id)
@@ -680,16 +711,16 @@ impl Game {
     /// The killed creatures whose time has come get up and fight on.
     fn tick_resurrections(&mut self) {
         let now = self.tick;
-        let due: Vec<u16> = self.resurrections.iter().filter(|&(_, &at)| now >= at).map(|(&id, _)| id).collect();
+        let due: Vec<u16> = self.fights.resurrections.iter().filter(|&(_, &at)| now >= at).map(|(&id, _)| id).collect();
         for id in due {
-            self.resurrections.remove(&id);
+            self.fights.resurrections.remove(&id);
             // gone meanwhile (left behind, burnt, taken apart by a script)
             let Some(idx) = self.map().index(id) else { continue };
             if !self.map().items[idx].in_world() || !self.state(id).dead {
                 continue;
             }
             self.map_mut().items[idx].dead = false;
-            let full = self.full_hp.get(&id).copied().unwrap_or(1).max(1);
+            let full = self.fights.full_hp.get(&id).copied().unwrap_or(1).max(1);
             {
                 let s = self.state_mut(id);
                 s.dead = false;
@@ -753,12 +784,12 @@ impl Game {
     /// The next step of a changeling taking the Avatar's shape, once the
     /// last one's animation is over. True if that step is all it does now.
     fn changeling_step(&mut self, id: u16) -> bool {
-        let Some(&shift) = self.changelings.get(&id) else { return false };
+        let Some(&shift) = self.fights.changelings.get(&id) else { return false };
         match shift {
             Shift::Turning => {
                 self.set_shape(id, AVATAR_SHAPE);
                 let seconds = 5 + self.rng.next() % 21;
-                self.changelings.insert(id, Shift::Disguised(self.tick + seconds * 30));
+                self.fights.changelings.insert(id, Shift::Disguised(self.tick + seconds * 30));
                 true
             }
             // in the Avatar's likeness it fights on (with the values the
@@ -767,11 +798,11 @@ impl Game {
             Shift::Disguised(_) => {
                 self.set_shape(id, CHANGELING);
                 self.animate(id, FROM_AVATAR);
-                self.changelings.insert(id, Shift::Returning);
+                self.fights.changelings.insert(id, Shift::Returning);
                 true
             }
             Shift::Returning => {
-                self.changelings.remove(&id);
+                self.fights.changelings.remove(&id);
                 false
             }
         }
@@ -795,7 +826,7 @@ impl Game {
         // a creature a script made (the golem of the spell) does not turn
         // on the Avatar by itself once its foe has fallen, whatever its
         // kind; only if he strikes it, or a script tells it to
-        let spare_avatar = self.script_made.contains(&id);
+        let spare_avatar = self.fights.script_made.contains(&id);
         let near: Vec<u16> = self
             .map()
             .items_near(it.x, it.y, 768)
@@ -819,7 +850,7 @@ impl Game {
         self.paths.remove(&id);
         let pf = crate::effects::Pathfind::new(id, 0, (av.x, av.y));
         self.add_native(crate::vm::Kind::Pathfind(pf), id, PROC_WALK);
-        self.searching.insert(id);
+        self.fights.searching.insert(id);
         self.state_mut(id).target = 0;
         self.state_mut(id).wait = 5;
     }
@@ -843,7 +874,7 @@ impl Game {
         if self.tick.is_multiple_of(15) {
             self.notice_avatar();
         }
-        let fighters: Vec<u16> = self.states.iter().filter(|(&id, s)| id != AVATAR && s.in_combat && !s.dead).map(|(&id, _)| id).collect();
+        let fighters: Vec<u16> = self.fights.states.iter().filter(|(&id, s)| id != AVATAR && s.in_combat && !s.dead).map(|(&id, _)| id).collect();
         let talk_truce = self.options.talk_truce && self.in_conversation();
         for id in fighters {
             self.combat_step(id, talk_truce);
@@ -861,6 +892,7 @@ impl Game {
         let av = self.avatar();
         let side = self.state(AVATAR).alignment;
         let idle: Vec<u16> = self
+            .fights
             .states
             .iter()
             .filter(|(&id, s)| id != AVATAR && !s.in_combat && !s.dead && s.enemy_alignment & side != 0)
@@ -869,13 +901,13 @@ impl Game {
             // they never start one on sight, only when attacked or when
             // their script says so (a guard seeing a theft).
             .filter(|(_, s)| s.alignment & TOWNSFOLK == 0)
-            .filter(|(id, _)| !self.calmed.contains(id) && !self.script_made.contains(id))
+            .filter(|(id, _)| !self.fights.calmed.contains(id) && !self.fights.script_made.contains(id))
             .map(|(&id, _)| id)
             // The permanent characters (with a number of their own) do not
             // start a fight on sight, hostile or not: their script decides,
             // or a blow. The skeletons lined up in the Lower Catacombs
             // stand there swinging their axes. Only creatures attack.
-            .filter(|&id| !self.npc_stats.contains_key(&id))
+            .filter(|&id| !self.people.npc_stats.contains_key(&id))
             .collect();
         for id in idle {
             let near = self.map().get(id).is_some_and(|it| {
@@ -928,7 +960,7 @@ impl Game {
             return;
         }
         if self.mover(id).busy() || self.inputs.contains_key(&id) {
-            if std::env::var_os("PAGAN_DEBUG").is_some() && self.tick.is_multiple_of(20) {
+            if crate::debug::env().debug && self.tick.is_multiple_of(20) {
                 eprintln!("combat {id}: busy={} last={} input={}", self.mover(id).busy(), self.mover(id).last_anim(), self.inputs.contains_key(&id));
             }
             return; // in the middle of a move
@@ -947,7 +979,7 @@ impl Game {
             if target == 0 {
                 // a creature a script made (the golem) is done fighting:
                 // a click gives it orders again
-                if self.script_made.contains(&id) {
+                if self.fights.script_made.contains(&id) {
                     self.set_in_combat(id, false);
                     return;
                 }
@@ -964,14 +996,14 @@ impl Game {
     fn walk_interrupted(&mut self, id: u16, it: &crate::map::Item, talk_truce: bool) -> bool {
         // a changeling on its way to the Avatar may take his shape too
         // (a chance once a second)
-        if it.shape == CHANGELING && self.cur_map != ENDGAME_MAP && self.inputs.contains_key(&id) && !self.changelings.contains_key(&id)
+        if it.shape == CHANGELING && self.cur_map != ENDGAME_MAP && self.inputs.contains_key(&id) && !self.fights.changelings.contains_key(&id)
             && self.tick.is_multiple_of(30) && self.rng.next().is_multiple_of(WALK_SHIFT_CHANCE)
         {
             self.kill_processes(id, PROC_WALK);
             self.inputs.remove(&id);
             self.paths.remove(&id);
             if self.animate(id, TO_AVATAR) {
-                self.changelings.insert(id, Shift::Turning);
+                self.fights.changelings.insert(id, Shift::Turning);
             }
             return true;
         }
@@ -992,14 +1024,14 @@ impl Game {
         }
         // seen again while still on its way there: after him
         if !self.inputs.contains_key(&id) {
-            self.searching.remove(&id);
-        } else if self.state(id).target == 0 && self.searching.contains(&id) {
+            self.fights.searching.remove(&id);
+        } else if self.state(id).target == 0 && self.fights.searching.contains(&id) {
             let av = self.avatar();
             let seen = !self.hidden_from(id, AVATAR) && self.state(id).enemy_alignment & self.state(AVATAR).alignment != 0;
             if seen && (av.x - it.x).abs().max((av.y - it.y).abs()) <= 768 {
                 self.kill_processes(id, PROC_WALK);
                 self.stop_walk(id, it, (av.x - it.x, av.y - it.y));
-                self.searching.remove(&id);
+                self.fights.searching.remove(&id);
                 self.state_mut(id).target = AVATAR;
                 return true;
             }
@@ -1021,14 +1053,14 @@ impl Game {
         }
         let gap = self.box_gap(it, t);
         let shape_ranged = self.data.monsters.get(&it.shape).is_some_and(|m| m.ranged);
-        if std::env::var_os("PAGAN_DEBUG").is_some() {
+        if crate::debug::env().debug {
             eprintln!("combat {id}: target {target} gap {gap} dz {} ranged {shape_ranged}", t.z - it.z);
         }
         // a changeling takes the Avatar's shape now and then instead
         if it.shape == CHANGELING && self.cur_map != ENDGAME_MAP && self.rng.next().is_multiple_of(SHIFT_CHANCE) {
             self.mover(id).dir = dir;
             if self.animate(id, TO_AVATAR) {
-                self.changelings.insert(id, Shift::Turning);
+                self.fights.changelings.insert(id, Shift::Turning);
                 return;
             }
         }
@@ -1066,7 +1098,7 @@ impl Game {
             // A walk that brought it no closer (the enemy up on a wall it
             // cannot climb): wait longer each time before the next one.
             let fails = {
-                let e = self.approach_fails.entry(id).or_insert((i32::MAX, 0));
+                let e = self.fights.approach_fails.entry(id).or_insert((i32::MAX, 0));
                 e.1 = if gap >= e.0 - 8 { e.1 + 1 } else { 0 };
                 e.0 = gap;
                 e.1
@@ -1097,6 +1129,7 @@ impl Game {
         // pixels of its own in the picture (the per-pixel id buffer).
         const MIN_SEEN: u32 = 6;
         let fighters: Vec<usize> = self
+            .view
             .painted
             .iter()
             .map(|p| p.index)
@@ -1104,7 +1137,7 @@ impl Game {
                 self.map().items.get(i).is_some_and(|it| {
                     it.id != AVATAR
                         && self.can_fight(it)
-                        && self.states.get(&it.id).is_some_and(|s| !s.dead && s.in_combat && s.target == AVATAR)
+                        && self.fights.states.get(&it.id).is_some_and(|s| !s.dead && s.in_combat && s.target == AVATAR)
                 })
             })
             .collect();
@@ -1138,7 +1171,7 @@ impl Game {
                 continue;
             }
             let Some(it) = self.map().items.get(index) else { continue };
-            let Some(s) = self.states.get(&it.id) else { continue };
+            let Some(s) = self.fights.states.get(&it.id) else { continue };
             let height = self.data.infos.get(it.shape as usize).map_or(0, |si| si.z * 8);
             let (sx, sy) = self.to_screen(it.x, it.y, it.z);
             bars.push((it.id, it.shape, s.hp, sx - WIDTH / 2, sy - height - 12));
@@ -1151,7 +1184,7 @@ impl Game {
                 // known, so take what it has now (or the least its kind
                 // starts with) and count down from there.
                 let least = self.data.monsters.get(&shape).map_or(0, |m| m.hp.0);
-                let full = self.full_hp.entry(id).or_insert(hp.max(least));
+                let full = self.fights.full_hp.entry(id).or_insert(hp.max(least));
                 *full = (*full).max(hp).max(1);
                 (x, y, (hp.max(0) * WIDTH + *full - 1) / *full)
             })

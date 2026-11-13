@@ -140,7 +140,7 @@ impl Game {
             }
             let volume = self.sfx_volume(AVATAR);
             self.audio.play_sfx(SFX_GAIN, AVATAR, false, volume);
-            if std::env::var_os("PAGAN_DEBUG").is_some() {
+            if crate::debug::env().debug {
                 eprintln!("practice: {} up to {}", ["strength", "dexterity", "intelligence"][what as usize], cur + 1);
             }
         }

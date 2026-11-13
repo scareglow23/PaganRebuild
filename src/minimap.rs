@@ -293,7 +293,7 @@ impl Game {
                 if z_limit.is_some_and(|limit| it.z >= limit) {
                     return None; // upstairs, under the roof hidden from view
                 }
-                let state = self.states.get(&it.id);
+                let state = self.fights.states.get(&it.id);
                 if state.is_some_and(|s| s.dead) || it.dead {
                     return None;
                 }

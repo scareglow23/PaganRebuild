@@ -262,7 +262,7 @@ impl Game {
     /// The weapon picture for the Avatar seen facing `dir` (None: the way
     /// he faces; another direction when the view is turned).
     pub fn weapon_overlay_for(&mut self, dir: Option<u8>) -> Option<(u32, u32, i32, i32)> {
-        let s = self.states.get(&AVATAR).copied()?;
+        let s = self.fights.states.get(&AVATAR).copied()?;
         let mover = self.actors.get(&AVATAR)?;
         let (action, frame) = mover.shown();
         if s.dead || (!s.in_combat && action != crate::anim::UNREADY_WEAPON) {

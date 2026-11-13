@@ -1,0 +1,9 @@
+# Climbing onto a roof in Tenebrae from a corner with a wall beside the Avatar (map 39): the wall and its candle stay hidden under the eaves, the roof is seen there while he pulls himself up
+args: --map 39 --pos 16454,13798,48
+do: t5;walkclick:290,160;t8;where:1;pickat:297,200;pickat:303,205;t60;where:1
+expect: where 1: 16454,13798,57
+expect: pickat 297,200: id 20325 shape  412
+expect: pickat 303,205: id 20325 shape  412
+reject: shape  149 frame   1 at 16511,13855,48
+reject: shape  453 frame   3 at 16479,13887,48
+expect: where 1: 16358,13798,88

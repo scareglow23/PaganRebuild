@@ -137,7 +137,7 @@ fn step(game: &mut Game, input: Option<MoveInput>, n: u32) {
         super::journey::tick(game, n);
         return;
     }
-    game.place_view(game.camera_position(), game.view_size);
+    game.place_view(game.camera_position(), game.view.size);
     game.step(input);
 }
 
@@ -182,7 +182,7 @@ impl Explorer {
     /// over in a grid as the eye goes over the picture.
     fn on_screen(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions) -> Vec<u16> {
         game.draw(surf, opts, false);
-        let (w, h) = game.view_size;
+        let (w, h) = game.view.size;
         let mut seen: Vec<u16> = Vec::new();
         for y in (LOOK_STEP / 2..h).step_by(LOOK_STEP as usize) {
             for x in (LOOK_STEP / 2..w).step_by(LOOK_STEP as usize) {
@@ -292,7 +292,7 @@ impl Explorer {
         }
         // nothing new on the screen: a click on ground not stood on yet
         // (the farther, the better: he wants to see what is beyond)
-        let (w, h) = game.view_size;
+        let (w, h) = game.view.size;
         // (after clicks that found no way: close by, as a player tries)
         if self.walk_fails >= 2 * WALK_FAILS {
             let dir = self.rng.below(8) as u8;
@@ -489,10 +489,10 @@ impl Explorer {
             Goal::Use { since, .. } | Goal::Walk { since, .. } => {
                 let since = *since;
                 let id = if let Goal::Use { id, .. } = self.goal { Some(id) } else { None };
-                let busy = game.walking() || game.approaching.is_some() || game.mover(AVATAR).busy();
+                let busy = game.walking() || game.orders.approaching.is_some() || game.mover(AVATAR).busy();
                 // (his hit points on the way, the last ones before he uses it)
                 if let Goal::Use { at_hand, .. } = &mut self.goal {
-                    if game.walking() || game.approaching.is_some() {
+                    if game.walking() || game.orders.approaching.is_some() {
                         *at_hand = Some(game.state(AVATAR).hp);
                     }
                 }
@@ -588,7 +588,7 @@ pub(super) fn run(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _
     ex.log.write(game, "start", &[("seed", V::N(seed as i64)), ("ticks", V::N(ticks as i64))]);
     let mut checkpoint = Checkpoint::new(game);
     // PAGAN_EXPLORE=1: every new goal is printed
-    let trace = std::env::var_os("PAGAN_EXPLORE").is_some();
+    let trace = crate::debug::env().explore;
     let mut last = String::new();
     for n in 0..ticks as u32 {
         ex.watch.step = n;

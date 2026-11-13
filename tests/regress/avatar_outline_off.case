@@ -1,0 +1,6 @@
+# Option "outline when hidden" switched off: behind the wall of the Upper
+# Catacombs the Avatar shows no outline, however long he stays there
+args: --map 50 --pos 5859,2314,48
+do: option:map_fade,off;option:avatar_outline,off;t5;pickat:0,0;t15;outline
+expect: outline: 0 pixels
+reject: outline: 784 pixels
