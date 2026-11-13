@@ -677,6 +677,8 @@ impl Game {
     /// Runs the world for one game tick.
     pub fn step(&mut self, input: Option<MoveInput>) {
         self.tick = self.tick.wrapping_add(1);
+        let avatar = self.avatar();
+        crate::crash::note(crate::crash::Moment { map: self.cur_map, tick: self.tick, avatar: (avatar.x, avatar.y, avatar.z), language: self.language });
         self.just_destroyed.clear();
         if input.is_some() {
             // steering takes over from walking to what was clicked

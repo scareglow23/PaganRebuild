@@ -27,7 +27,7 @@ PaganRebuild is an engine for Ultima VIII: Pagan written in Rust. It reads the o
 
 The original game files are needed to run the program and the tests; they are not in the repository and must never be added, nor music files. The program looks for a folder with `ENGLISH/STATIC/U8SHAPES.FLX` (or `GERMAN`, `FRENCH` with `--lang`) in the folders above it, or uses `--game <dir>`.
 
-Savegames, settings (`settings.ini`, `keys.ini`) and an optional SoundFont live in the user folder: `%APPDATA%\pagan` on Windows (`APPDATA` set in the environment wins everywhere). `PAGAN_SAVE_DIR` moves the savegames. Tests point both at scratch folders; never write to a player's own folder.
+Savegames, settings (`settings.ini`, `keys.ini`) and an optional SoundFont live in the user folder: `%APPDATA%\pagan` on Windows (`APPDATA` set in the environment wins everywhere). `PAGAN_SAVE_DIR` moves the savegames. Tests point both at scratch folders; never write to a player's own folder. A crash of the windowed game is written to `crash.log` there (`src/crash.rs`: what failed, where in the code, where the game was); runs with `--screenshot` show it on the console only.
 
 ## Running without a window
 

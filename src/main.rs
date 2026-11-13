@@ -21,6 +21,7 @@ mod combat;
 mod cursor;
 mod display;
 mod controls;
+mod crash;
 mod drag;
 mod effects;
 mod eggs;
@@ -380,6 +381,11 @@ fn run(args: Args) -> Result<(), Box<dyn Error>> {
     game.view_size = args.size;
     if let Some(path) = &args.screenshot {
         return Ok(testcmd::run_headless(&mut game, &mut surf, &mut opts, path, &args.commands)?);
+    }
+    // in the window a crash leaves a log behind (test runs show it on the
+    // console, and must not write to the player's folder)
+    if let Some(dir) = user_dir() {
+        crash::install(dir);
     }
     play::Play::new(args, game, surf, opts, with_title)?.run()
 }
