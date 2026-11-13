@@ -105,7 +105,7 @@ impl Game {
         let av = self.avatar();
         let (dx, dy) = (g.x - av.x, g.y - av.y);
         let close = dx.abs().max(dy.abs()) <= 48;
-        if std::env::var_os("PAGAN_TRACE").is_some() {
+        if crate::debug::env().trace {
             eprintln!("auto climb: tick {} at {},{},{} climbs {} steps {} walk_on {}", self.tick, av.x, av.y, av.z, g.climbs, g.steps, g.walk_on);
         }
         if av.z + 8 >= g.z {

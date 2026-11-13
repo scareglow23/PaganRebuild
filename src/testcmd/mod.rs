@@ -86,17 +86,17 @@ pub fn run_headless(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions,
     game.options.smooth_camera = false;
     // PAGAN_XBR: the picture smoothed, as with the option on (which also
     // changes how some things are drawn)
-    game.options.pixels = if std::env::var_os("PAGAN_XBR").is_some() { crate::menu::PIXELS_XBR } else { crate::menu::PIXELS_SHARP };
+    game.options.pixels = if crate::debug::env().xbr { crate::menu::PIXELS_XBR } else { crate::menu::PIXELS_SHARP };
     run_commands(game, surf, opts, commands)?;
     if !commands.contains("gumpshot") && !commands.contains("shapeshot") {
         game.draw(surf, opts, false);
     }
-    if std::env::var_os("PAGAN_XBR").is_some() {
+    if crate::debug::env().xbr {
         // the picture smoothed to twice its size, as the option shows it
         let mut big = Vec::new();
         let sharp: &[bool] = if game.view.sharp.len() == surf.pixels.len() { &game.view.sharp } else { &[] };
         println!("smoothing: {} pixels kept sharp (mask {} for {})", sharp.iter().filter(|&&b| b).count(), game.view.sharp.len(), surf.pixels.len());
-        if std::env::var_os("PAGAN_SHOWSHARP").is_some() {
+        if crate::debug::env().show_sharp {
             let marked: Vec<usize> = sharp.iter().enumerate().filter(|(_, &b)| b).map(|(i, _)| i).collect();
             for i in marked {
                 surf.pixels[i] = 0xFF00FF;
@@ -115,7 +115,7 @@ pub fn run_headless(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions,
         s2.pixels = big;
         *surf = s2;
     }
-    match std::env::var("PAGAN_ZOOM").ok().and_then(|z| z.parse::<i32>().ok()).filter(|z| *z > 1) {
+    match crate::debug::env().zoom.filter(|z| *z > 1) {
         Some(z) => save_png(path, &zoomed(surf, z)).map_err(|e| e.to_string())?,
         None => save_png(path, surf).map_err(|e| e.to_string())?,
     }

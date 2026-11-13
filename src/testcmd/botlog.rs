@@ -31,7 +31,7 @@ const WAY_TICKS: u32 = 30;
 impl BotLog {
     /// The file named by PAGAN_BOT_LOG, or no protocol.
     pub fn open() -> BotLog {
-        let out = std::env::var_os("PAGAN_BOT_LOG").and_then(|p| match std::fs::File::create(&p) {
+        let out = crate::debug::env().bot_log.as_ref().and_then(|p| match std::fs::File::create(p) {
             Ok(f) => Some(std::io::BufWriter::new(f)),
             Err(e) => {
                 eprintln!("bot protocol {}: {e}", Path::new(&p).display());

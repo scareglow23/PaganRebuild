@@ -266,8 +266,8 @@ impl Game {
     /// The file of a savegame slot of this language.
     pub fn save_path(&self, slot: usize) -> Option<PathBuf> {
         // PAGAN_SAVE_DIR redirects savegames, so tests do not touch the player's
-        let dir = match std::env::var_os("PAGAN_SAVE_DIR") {
-            Some(d) => PathBuf::from(d),
+        let dir = match &crate::debug::env().save_dir {
+            Some(d) => d.clone(),
             None => crate::user_dir()?,
         };
         Some(dir.join(match slot {

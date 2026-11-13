@@ -328,7 +328,7 @@ impl Game {
     pub fn avatar_attack(&mut self, dir: Option<u8>, kick: bool) {
         let s = self.state(AVATAR);
         if !s.in_combat || s.dead || self.stasis || self.mover(AVATAR).busy() {
-            if std::env::var_os("PAGAN_DEBUG").is_some() {
+            if crate::debug::env().debug {
                 let (stasis, busy, last) = (self.stasis, self.mover(AVATAR).busy(), self.mover(AVATAR).last_anim());
                 eprintln!("attack refused: combat {} dead {} stasis {stasis} busy {busy} last {last}", s.in_combat, s.dead);
             }
@@ -364,7 +364,7 @@ impl Game {
         let Some(it) = self.map().get(attacker).copied() else { return false };
         let Some(si) = self.data.infos.get(it.shape as usize).copied() else { return false };
         let dir = self.mover(attacker).dir as usize;
-        if attacker == AVATAR && std::env::var_os("PAGAN_DEBUG").is_some() {
+        if attacker == AVATAR && crate::debug::env().debug {
             eprintln!("avatar swing: dir {dir} range {range} at {},{},{}", it.x, it.y, it.z);
         }
         const XF: [i32; 8] = [0, 1, 1, 1, 0, -1, -1, -1];
@@ -561,7 +561,7 @@ impl Game {
         // armour and protection count against every hit, also one without
         // an attacker (the fire bombs of a trapped book), as in the original
         let damage = self.attack_damage(victim, attacker, damage, damage_type, attacker_is_actor && roll);
-        if std::env::var_os("PAGAN_DEBUG").is_some() {
+        if crate::debug::env().debug {
             eprintln!("hit: {attacker} -> {victim}: raw {raw} type {damage_type:X} -> {damage}");
         }
         let volume = self.sfx_volume(victim);
@@ -960,7 +960,7 @@ impl Game {
             return;
         }
         if self.mover(id).busy() || self.inputs.contains_key(&id) {
-            if std::env::var_os("PAGAN_DEBUG").is_some() && self.tick.is_multiple_of(20) {
+            if crate::debug::env().debug && self.tick.is_multiple_of(20) {
                 eprintln!("combat {id}: busy={} last={} input={}", self.mover(id).busy(), self.mover(id).last_anim(), self.inputs.contains_key(&id));
             }
             return; // in the middle of a move
@@ -1053,7 +1053,7 @@ impl Game {
         }
         let gap = self.box_gap(it, t);
         let shape_ranged = self.data.monsters.get(&it.shape).is_some_and(|m| m.ranged);
-        if std::env::var_os("PAGAN_DEBUG").is_some() {
+        if crate::debug::env().debug {
             eprintln!("combat {id}: target {target} gap {gap} dz {} ranged {shape_ranged}", t.z - it.z);
         }
         // a changeling takes the Avatar's shape now and then instead

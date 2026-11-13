@@ -377,7 +377,7 @@ fn cmd_blink(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _st: &
                 };
                 if let (Some(pa), Some(pb), Some(pc)) = (at(a), at(b), at(c)) {
                     // PAGAN_BLINK=any: every change from one picture to the next
-                    let any = std::env::var_os("PAGAN_BLINK").is_some();
+                    let any = crate::debug::env().blink;
                     if (any && pb != pc) || (!any && pa == pc && pa != pb) {
                         n += 1;
                         (bx0, by0, bx1, by1) = (bx0.min(x), by0.min(y), bx1.max(x), by1.max(y));
@@ -827,7 +827,7 @@ fn cmd_sheet(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _st: &
     game.draw(surf, opts, false); // the Avatar dressed as now
     let shape = game.data.shapes.get(shape_no).ok_or("no such shape")?;
     // PAGAN_HEADS: the Avatar's head as found for the helmet, in magenta
-    let heads = std::env::var_os("PAGAN_HEADS").is_some();
+    let heads = crate::debug::env().heads;
     let frames: Vec<(usize, &shape::Frame)> = shape.frames.iter().enumerate().skip(first).take(count).filter(|(_, f)| f.width > 0).collect();
     let cell_w = frames.iter().map(|(_, f)| f.width).max().unwrap_or(1) + 6;
     let cell_h = frames.iter().map(|(_, f)| f.height).max().unwrap_or(1) + 14;

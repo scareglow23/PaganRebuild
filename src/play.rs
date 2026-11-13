@@ -253,7 +253,7 @@ impl Play {
             frame_times,
             pacer,
             // (PAGAN_FPS=1: shown from the start)
-            fps: std::env::var_os("PAGAN_FPS").map(|_| Fps::new()),
+            fps: crate::debug::env().fps.then(Fps::new),
             key_map: Default::default(),
             pad_repeat: None,
         })

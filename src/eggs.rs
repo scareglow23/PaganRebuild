@@ -447,7 +447,7 @@ impl Game {
             self.fade_ins.retain(|_, start| now.wrapping_sub(*start) < FADE_IN_TICKS);
             self.fade_ins.insert(id, now);
         }
-        if std::env::var_os("PAGAN_DEBUG").is_some() {
+        if crate::debug::env().debug {
             eprintln!("hatch: egg {} at {},{},{} shape {} activity {} -> actor {id}", egg.id, egg.x, egg.y, egg.z, egg.quality & 0x7FF, egg.mapnum & 7);
         }
         id

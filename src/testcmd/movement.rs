@@ -34,7 +34,7 @@ fn cmd_walkturns(game: &mut Game, _surf: &mut Surface, _opts: &mut ViewOptions, 
             break;
         }
         game.step(None);
-        if std::env::var_os("PAGAN_TRACE").is_some() && game.tick.is_multiple_of(5) {
+        if crate::debug::env().trace && game.tick.is_multiple_of(5) {
             let av = game.avatar();
             println!("  tick {} at {},{},{} dir {:?} way {:?}", game.tick, av.x, av.y, av.z, game.inputs.get(&AVATAR).map(|i| i.dir), game.paths.get(&AVATAR).map(|w| &w.points));
         }

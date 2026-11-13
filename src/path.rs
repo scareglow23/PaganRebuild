@@ -118,7 +118,7 @@ impl Game {
 
     fn timed_search(&self, actor: &Item, goal: (i32, i32), may_drop: bool, partial: Ends, near: impl Fn(&Item) -> bool) -> Option<(Vec<(i32, i32)>, Vec<bool>)> {
         // PAGAN_PATHTIME=1: how long each search takes
-        if std::env::var_os("PAGAN_PATHTIME").is_none() {
+        if !crate::debug::env().path_time {
             return self.search_path(actor, goal, may_drop, partial, near);
         }
         let start = std::time::Instant::now();

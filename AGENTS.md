@@ -38,7 +38,7 @@ PaganRebuild --screenshot out.png --do "t60;look:1;t30"
 PaganRebuild --screenshot out.png --do "loadslot:5;t5;zoom:75;inv"
 ```
 
-`--do` takes test commands separated by `;` (all listed in `--help`); the picture is written after them. `PAGAN_XBR=1` writes the picture with the xBR filter at twice the size.
+`--do` takes test commands separated by `;` (all listed in `--help`); the picture is written after them. `PAGAN_XBR=1` writes the picture with the xBR filter at twice the size. All switches of the environment (`PAGAN_...`: what is printed, timed, where files go) are listed with what they do in `src/debug.rs`, which reads them once at the start; a new one goes there, not into the code that uses it.
 
 ## Tests
 

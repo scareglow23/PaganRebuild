@@ -271,7 +271,7 @@ impl TurnView {
         // Walls are marked as hiding what is behind them; they and the
         // ground make good cubes, anything else only if it fills its box.
         let boxy = hit >= MIN_COVER * opaque && hit >= MIN_FILL * inside;
-        if std::env::var_os("PAGAN_MODELS").is_some() {
+        if crate::debug::env().models {
             eprintln!("model shape {shape} frame {frame} box {xd}x{yd}x{zd} cover {:.2} fill {:.2} occl {} land {} solid {}",
                       hit / opaque, hit / inside, info.occl, info.land, info.solid);
         }
@@ -388,7 +388,7 @@ impl TurnView {
                 _ => self.add_board(&mut list, shapes, scene, &proj, quarter, index, &it, &info, model.as_deref()),
             }
         }
-        if std::env::var_os("PAGAN_TRACE").is_some() {
+        if crate::debug::env().trace {
             let cubes: usize = list.jobs.iter().map(|j| match j { Job::Cubes { slot, .. } => list.cubes[*slot].len(), _ => 0 }).sum();
             eprintln!("turned picture: {} items, {cubes} cubes, {} models cached", list.painted.len(), self.models.len());
         }

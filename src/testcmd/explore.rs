@@ -588,7 +588,7 @@ pub(super) fn run(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _
     ex.log.write(game, "start", &[("seed", V::N(seed as i64)), ("ticks", V::N(ticks as i64))]);
     let mut checkpoint = Checkpoint::new(game);
     // PAGAN_EXPLORE=1: every new goal is printed
-    let trace = std::env::var_os("PAGAN_EXPLORE").is_some();
+    let trace = crate::debug::env().explore;
     let mut last = String::new();
     for n in 0..ticks as u32 {
         ex.watch.step = n;

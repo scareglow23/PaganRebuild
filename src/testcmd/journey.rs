@@ -250,12 +250,12 @@ fn follow(game: &mut Game, ahead: usize) -> Result<u32, String> {
     };
     let before = game.avatar();
     // PAGAN_JOURNEY=1: every click is printed
-    if std::env::var_os("PAGAN_JOURNEY").is_some() {
+    if crate::debug::env().journey > 0 {
         eprintln!("follow: map {} from {},{},{} to {x},{y} (way point {} of {})", game.cur_map, before.x, before.y, before.z, g.progress, g.route.len());
     }
     game.start_walk(x, y);
     let mut n = 0;
-    let trace = std::env::var("PAGAN_JOURNEY").is_ok_and(|v| v == "2");
+    let trace = crate::debug::env().journey == 2;
     while n < 300 {
         if trace {
             let a = game.avatar();
@@ -779,7 +779,7 @@ pub(super) fn run(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _
             game.draw(surf, opts, false);
             let p = game.to_screen(x, y, z);
             let (w, h) = game.view.size;
-            if std::env::var_os("PAGAN_JOURNEY").is_some() {
+            if crate::debug::env().journey > 0 {
                 eprintln!("hop: pointer {p:?} ground {:?}", game.ground_at(p.0, p.1));
             }
             let said = game.jump(Some(p), w, h);

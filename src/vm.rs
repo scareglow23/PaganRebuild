@@ -48,8 +48,7 @@ impl Scripts {
 /// PAGAN_CALLS=1: every call and engine function of the scripts is
 /// written out (for finding where a script goes wrong).
 fn trace_calls() -> bool {
-    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| std::env::var_os("PAGAN_CALLS").is_some())
+    crate::debug::env().calls
 }
 
 pub fn obj_ptr(id: u16) -> u32 {
