@@ -236,9 +236,12 @@ pub fn render(surf: &mut Surface, cam: &Camera, items: &[Item], infos: &[ShapeIn
 /// roof or floor up at about the figure's head, ahead of it and not
 /// clearly in front of it)?
 ///
-/// Only what lies ahead is the ledge. Where two houses meet, the eaves
-/// of the other one hang over the corner he climbs from: they are not
-/// what he climbs, and he stays hidden behind them.
+/// The ledge is what lies ahead, and the edge right over him that he
+/// pulls himself over: the eaves of the roof he climbs onto overhang the
+/// spot he climbs from, a strip running across his way. Where two houses
+/// meet, the eaves of the other one hang over that corner too, but run
+/// along his way (or lie beside it): they are not what he climbs, and he
+/// stays hidden behind them.
 fn climbed_ledge(t: &Item, t_info: &ShapeInfo, figure: &Item, figure_info: &ShapeInfo, dir: u8) -> bool {
     const DIRS: [(i32, i32); 8] = [(0, -1), (1, -1), (1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1)];
     /// How far the ledge may reach back over the figure's box.
@@ -250,8 +253,10 @@ fn climbed_ledge(t: &Item, t_info: &ShapeInfo, figure: &Item, figure_info: &Shap
     let (f_left, f_far, f_top) = (figure.x - fxd, figure.y - fyd, figure.z + fzd);
     let ahead_x = (dx < 0 && t.x <= f_left + REACH) || (dx > 0 && t_left >= figure.x - REACH);
     let ahead_y = (dy < 0 && t.y <= f_far + REACH) || (dy > 0 && t_far >= figure.y - REACH);
+    // over him, across his way (climbing along x: a strip along y)
+    let over = t.x > f_left && t.y > f_far && ((dy == 0 && tyd > txd) || (dx == 0 && txd > tyd));
     let standing = t_info.creature && !t_info.lies_in(t.frame);
-    (ahead_x || ahead_y) && !standing && t.z > figure.z && t.z <= f_top + 16 && t_far < figure.y && t_left < figure.x
+    (ahead_x || ahead_y || over) && !standing && t.z > figure.z && t.z <= f_top + 16 && t_far < figure.y && t_left < figure.x
 }
 
 /// The figure climbing onto a ledge is seen in front of it: its picture
