@@ -74,18 +74,7 @@ pub struct SortItem {
     /// A body lying on the ground, and a creature on its feet.
     lying: bool,
     standing: bool,
-    /// A figure climbing onto a ledge.
-    climbing: bool,
     depends: Vec<usize>,
-}
-
-/// For a figure climbing onto a ledge: is `t` part of the ledge (its edge,
-/// roof or floor up at about the figure's head, not clearly in front of
-/// it)? The climbing picture already reaches up there with head and arms
-/// while the box is still below: the edge of a roof was painted over the
-/// Avatar climbing onto it.
-fn climbed_ledge(t: &SortItem, figure: &SortItem) -> bool {
-    figure.climbing && !t.standing && t.z > figure.z && t.z <= figure.z_top + 16 && t.y_far < figure.y && t.x_left < figure.x
 }
 
 /// Two boxes clearly separated along one axis (`far`, `near`: their
@@ -181,13 +170,6 @@ impl SortItem {
         }
         if let Some(front) = in_front_of_island(b, a) {
             return front;
-        }
-        // a figure climbing onto a ledge is in front of it
-        if climbed_ledge(b, a) {
-            return false;
-        }
-        if climbed_ledge(a, b) {
-            return true;
         }
 
         // clearly separated in z
@@ -337,8 +319,6 @@ pub struct Sorter {
     grid_h: i32,
     /// Per item: the last new item that looked at it (to take each once).
     seen: Vec<usize>,
-    /// The figure climbing onto a ledge (index in the caller's list).
-    pub climbing: Option<usize>,
 }
 
 impl Sorter {
@@ -355,7 +335,6 @@ impl Sorter {
             grid_w,
             grid_h,
             seen: Vec::new(),
-            climbing: None,
         }
     }
 
@@ -409,7 +388,6 @@ impl Sorter {
             land: info.land,
             lying: info.lies_in(frame),
             standing: info.creature && !info.lies_in(frame),
-            climbing: self.climbing == Some(id),
             ..Default::default()
         };
 
@@ -471,28 +449,8 @@ impl Sorter {
         d.flat && d.z <= i.z
     }
 
-    /// A figure climbing onto a ledge is painted after the ledge. What
-    /// the ledge covers and what stands in front of the figure (a wall
-    /// beside him, under the eaves of the roof he climbs) then closed a
-    /// circle: ledge, figure, wall, ledge - and the wall was painted over
-    /// the roof for as long as he climbed. Such a thing stays under the
-    /// ledge, and with it behind the figure.
-    fn keep_under_climbed_ledge(&mut self) {
-        let Some(f) = self.items.iter().position(|it| it.climbing && !it.occluded) else { return };
-        let ledges: Vec<usize> = self.items[f].depends.iter().copied().filter(|&d| climbed_ledge(&self.items[d], &self.items[f])).collect();
-        if ledges.is_empty() {
-            return;
-        }
-        for x in 0..self.items.len() {
-            if x != f && self.items[x].depends.contains(&f) && ledges.iter().any(|&l| self.items[l].depends.contains(&x)) {
-                self.items[x].depends.retain(|&d| d != f);
-            }
-        }
-    }
-
     /// Returns the visible items in the order they have to be painted.
     pub fn paint_order(mut self) -> Vec<SortItem> {
-        self.keep_under_climbed_ledge();
         let n = self.items.len();
         let mut list: Vec<usize> = (0..n).collect();
         list.sort_unstable_by_key(|&i| self.list_key(i));
