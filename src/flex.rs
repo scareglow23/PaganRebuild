@@ -50,3 +50,59 @@ impl Flex {
         Some(&self.data[off..off + size])
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// An archive with these entries (None: an empty one).
+    fn archive(entries: &[Option<&[u8]>]) -> Vec<u8> {
+        let mut d = vec![0u8; 0x80 + entries.len() * 8];
+        d[0x54..0x58].copy_from_slice(&(entries.len() as u32).to_le_bytes());
+        for (i, e) in entries.iter().enumerate() {
+            if let Some(e) = e {
+                let (off, len) = (d.len() as u32, e.len() as u32);
+                d[0x80 + i * 8..0x84 + i * 8].copy_from_slice(&off.to_le_bytes());
+                d[0x84 + i * 8..0x88 + i * 8].copy_from_slice(&len.to_le_bytes());
+                d.extend_from_slice(e);
+            }
+        }
+        d
+    }
+
+    #[test]
+    fn entries_by_number() {
+        let flex = Flex::from_bytes(archive(&[Some(b"one"), None, Some(b"three")])).unwrap();
+        assert_eq!(flex.len(), 3);
+        assert_eq!(flex.get(0), Some(&b"one"[..]));
+        assert_eq!(flex.get(1), None);
+        assert_eq!(flex.get(2), Some(&b"three"[..]));
+        assert_eq!(flex.get(3), None);
+    }
+
+    /// Damaged files are refused or give no entry; nothing is read
+    /// beyond the end of the file.
+    #[test]
+    fn damaged_files() {
+        assert!(Flex::from_bytes(vec![0; 0x7F]).is_err());
+        // the table says more entries than the file holds
+        let mut d = archive(&[Some(b"one")]);
+        d[0x54] = 200;
+        assert!(Flex::from_bytes(d).is_err());
+        // an entry reaching beyond the end
+        let mut d = archive(&[Some(b"one")]);
+        d[0x84] = 50;
+        assert_eq!(Flex::from_bytes(d).unwrap().get(0), None);
+        // an offset past the end
+        let mut d = archive(&[Some(b"one")]);
+        d[0x80..0x84].copy_from_slice(&0xFFFF_FFF0u32.to_le_bytes());
+        assert_eq!(Flex::from_bytes(d).unwrap().get(0), None);
+    }
+
+    #[test]
+    fn numbers_low_byte_first() {
+        let d = [0x34, 0x12, 0x78, 0x56];
+        assert_eq!(u16le(&d, 0), 0x1234);
+        assert_eq!(u32le(&d, 0), 0x5678_1234);
+    }
+}

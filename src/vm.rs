@@ -1566,3 +1566,105 @@ impl Game {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn process() -> Process {
+        let mut p = Process::native(20, Kind::Usecode, 0, 0);
+        p.stack = vec![0; STACK_SIZE];
+        p.sp = STACK_SIZE;
+        p
+    }
+
+    /// What is pushed comes back in reverse order, low byte first.
+    #[test]
+    fn stack_push_and_pop() {
+        let mut p = process();
+        p.push2(0x1234);
+        p.push4(0xDEAD_BEEF);
+        p.push(&[1, 2, 3]);
+        assert_eq!(p.sp, STACK_SIZE - 9);
+        assert_eq!(p.at(p.sp, 3), &[1, 2, 3]);
+        p.sp += 3;
+        assert_eq!(p.pop4(), 0xDEAD_BEEF);
+        assert_eq!(p.pop2(), 0x1234);
+        assert_eq!(p.sp, STACK_SIZE);
+        // low byte first, as the scripts read their values
+        p.push2(0x0102);
+        assert_eq!(p.at(p.sp, 2), &[0x02, 0x01]);
+    }
+
+    /// A script reading or writing outside its stack gets nothing and
+    /// changes nothing: the machine does not fail on it.
+    #[test]
+    fn stack_out_of_range() {
+        let mut p = process();
+        // popping from the empty stack
+        assert_eq!(p.pop2(), 0);
+        assert_eq!(p.pop4(), 0);
+        assert_eq!(p.get4(STACK_SIZE - 2), 0);
+        p.put(STACK_SIZE - 1, &[9, 9]);
+        assert_eq!(p.stack[STACK_SIZE - 1], 0);
+        // pushing more than the stack holds
+        p.sp = 1;
+        p.push4(0xFFFF_FFFF);
+        assert_eq!(p.sp, 0);
+        p.push0(8);
+        assert_eq!(p.sp, 0);
+        // a process without a stack of its own (a walk, a delay)
+        let mut native = Process::native(21, Kind::Delay(3), 0, 0);
+        native.push2(7);
+        assert_eq!(native.pop2(), 0);
+    }
+
+    /// A call notes where to go on afterwards and opens a new frame.
+    #[test]
+    fn call_keeps_the_way_back() {
+        let mut p = process();
+        (p.class, p.ip, p.bp) = (5, 0x40, STACK_SIZE);
+        p.push2(77); // an argument
+        p.call(9, 0x100);
+        assert_eq!((p.class, p.ip), (9, 0x100));
+        assert_eq!(p.bp, p.sp);
+        // the frame: old frame pointer, where to go on, class, then the argument
+        assert_eq!(p.get2(p.bp), STACK_SIZE as u16);
+        assert_eq!(p.get2(p.bp + 2), 0x40);
+        assert_eq!(p.get2(p.bp + 4), 5);
+        assert_eq!(p.get2(p.local(6)), 77);
+        // locals lie below the frame pointer; never before the stack's start
+        assert_eq!(p.local(-2), p.bp - 2);
+        p.bp = 1;
+        assert_eq!(p.local(-8), 0);
+    }
+
+    #[test]
+    fn pointers_carry_their_kind() {
+        assert_eq!(obj_ptr(1) >> 16, SEG_OBJ);
+        assert_eq!(obj_ptr(0x1234) & 0xFFFF, 0x1234);
+        assert_eq!(str_ptr(9) >> 16, SEG_STRING);
+        assert_eq!(stack_ptr(0x20, 0xFFE), 0x0020_0FFE);
+    }
+
+    #[test]
+    fn list_elements() {
+        let mut l = UcList { elem: 2, data: Vec::new() };
+        assert_eq!(l.len(), 0);
+        // setting beyond the end makes the list grow, filled with zero
+        l.set(2, &[0x34, 0x12]);
+        assert_eq!(l.len(), 3);
+        assert_eq!((l.word(0), l.word(2)), (0, 0x1234));
+        assert_eq!(l.get(2), &[0x34, 0x12]);
+        // a value of the wrong size or a senseless index is left out
+        l.set(0, &[1]);
+        l.set(4096, &[1, 2]);
+        assert_eq!(l.len(), 3);
+        assert_eq!(l.word(0), 0);
+        // elements of one byte read as a number too
+        let bytes = UcList { elem: 1, data: vec![7, 8] };
+        assert_eq!((bytes.len(), bytes.word(1)), (2, 8));
+        // a list without an element size has no elements
+        assert_eq!(UcList { elem: 0, data: vec![1, 2] }.len(), 0);
+    }
+}
