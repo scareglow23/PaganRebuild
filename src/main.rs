@@ -166,7 +166,8 @@ mouse: left click = look at, double click = use, drag = move an item (shift: par
        in conversations click an answer or press its number;
        a click or space ends the speech on screen
 keys:  arrows / WASD = walk (shift = run), I = backpack, C = close containers,
-       space, J or both mouse buttons = jump to the pointer (standing at a ledge: climb),
+       space, J or both mouse buttons = jump to the pointer (standing at a ledge: climb; walking
+       with the keys, and with the pad's jump button, straight ahead),
        Tab = draw / put away the weapon; click or F = strike at the nearest enemy (held: keep striking; a click on a health bar attacks that creature), Q = kick, B = block, K = key ring,
        (fighting by clicking, with the modern controls: a click on an enemy walks up and
        strikes, holding the button keeps striking, ctrl+click strikes on the spot),
