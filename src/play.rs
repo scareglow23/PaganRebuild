@@ -73,13 +73,24 @@ fn read_input(window: &Window, surf: &Surface, run: Option<bool>, road_keys: boo
     None
 }
 
+/// Is the Avatar steered by the walking keys or the pad's left stick right
+/// now? Then a jump goes the way he walks: the pointer may be anywhere.
+fn steered(window: &Window) -> bool {
+    const WALK_KEYS: [Key; 8] = [Key::Left, Key::Right, Key::Up, Key::Down, Key::A, Key::D, Key::W, Key::S];
+    let (sx, sy) = window.stick();
+    WALK_KEYS.iter().any(|&k| window.is_key_down(k)) || (sx * sx + sy * sy).sqrt() >= STICK_DEAD
+}
+
+/// How far the left stick must be pushed before the Avatar walks.
+const STICK_DEAD: f32 = 0.3;
+
 /// The pad's left stick: the Avatar walks the way it is pushed (on
 /// screen), and runs when it is pushed all the way (or, with the modern
 /// controls, when running is switched on).
 fn stick_input(window: &Window, run: Option<bool>) -> Option<MoveInput> {
     let (sx, sy) = window.stick();
     let push = (sx * sx + sy * sy).sqrt();
-    if push < 0.3 {
+    if push < STICK_DEAD {
         return None;
     }
     Some(MoveInput { dir: screen_dir(sx, -sy), run: run.unwrap_or(false) || push > 0.9 })
@@ -775,7 +786,9 @@ impl Play {
             }
         }
         // reading: any click or space turns the page
-        let pointer = mouse_pos(window, MouseMode::Discard).map(|(x, y)| (x as i32, y as i32));
+        // (walking with the keys or the stick, a jump goes straight ahead:
+        // the pointer may be anywhere then)
+        let pointer = mouse_pos(window, MouseMode::Discard).map(|(x, y)| (x as i32, y as i32)).filter(|_| !steered(window));
         if window.is_key_pressed(Key::Space, KeyRepeat::No) || window.is_key_pressed(Key::Enter, KeyRepeat::No) {
             if game.ui.reader.is_some() {
                 game.reader_next();
