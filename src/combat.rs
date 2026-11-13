@@ -609,9 +609,23 @@ impl Game {
         // staggering back interrupts whatever the victim was doing
         let last = self.mover(victim).last_anim();
         if last != anim::START_BLOCK && last != anim::DIE {
-            self.mover(victim).dir = (dir + 4) & 7;
-            self.animate(victim, anim::STUMBLE_BACKWARDS);
-            self.state_mut(victim).wait = 10;
+            // The victim turns to the blow and staggers back from it. Not
+            // the Avatar while the player steers him: a blow from the side
+            // snapped him round in the middle of his own fight, away from
+            // the enemy he was striking at. He keeps facing his way and
+            // staggers back only from a blow in front of him (staggering
+            // back from one beside him would carry him off sideways, blow
+            // after blow). In a scene he turns, as everyone does.
+            let toward_blow = (dir + 4) & 7;
+            let steered = victim == AVATAR && self.player_in_control();
+            let from_front = matches!((toward_blow + 8 - self.mover(victim).dir) & 7, 0 | 1 | 7);
+            if !steered {
+                self.mover(victim).dir = toward_blow;
+            }
+            if !steered || from_front {
+                self.animate(victim, anim::STUMBLE_BACKWARDS);
+                self.state_mut(victim).wait = 10;
+            }
         }
     }
 

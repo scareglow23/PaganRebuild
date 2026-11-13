@@ -3,7 +3,7 @@
 # memory: loaded in a new session the skeleton stayed down for good)
 args: --map 50 --pos 2700,9400,48
 do: option:map_fade,off;goto:2700,9400,48;t3;place:119,247,2900,9500,48;event:24741,hatch;t60;hit:62,999,2;t5;fightstate:62
-do: saveslot:5;loadslot:5;t900;fightstate:62
+do: saveslot:5;loadslot:5;t600;fightstate:62
 expect: loadslot: Ok(())
 expect: fightstate:62: alignment 0x0 enemies 0x6 target 1 in_combat false hp 0
 expect: fightstate:62: alignment 0x0 enemies 0x6 target 1 in_combat true hp 35

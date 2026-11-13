@@ -1,0 +1,6 @@
+# The Avatar hit from the front in a fight staggers back from the blow, still facing his way
+args: --map 39 --pos 16454,13798,48
+do: t5;w4:3;t10;combat;t20;where:1;hit:1,3,1;t2;where:1;t30;where:1
+expect: where 1: 16454,13798,48 shape 1 frame 849 dir 3
+expect: where 1: 16454,13798,48 shape 1 frame 560 dir 3
+expect: where 1: 16450,13794,48 shape 1 frame 560 dir 3
