@@ -542,6 +542,10 @@ impl Grid {
         let mut covered = vec![false; (f.width * f.height).max(0) as usize];
         let (nx, ny, nz) = ((xd / XY).max(1), (yd / XY).max(1), (zd / Z).max(1));
         let mut grid = Grid { nx, ny, nz, cells: vec![None; (nx * ny * nz) as usize] };
+        // where to look for a drawn pixel around the middle of a cube,
+        // nearest first (worked out once: for every cube it took longer
+        // than the rest of its work)
+        let around: Vec<(i32, i32)> = (0..=reach).flat_map(ring).collect();
         for kz in 0..nz {
             for ky in 0..ny {
                 for kx in 0..nx {
@@ -553,7 +557,7 @@ impl Grid {
                         covered[(row * f.width + col) as usize] = true;
                     }
                     let i = grid.index(kx, ky, kz);
-                    grid.cells[i] = (0..=reach).flat_map(ring).find_map(|(ddx, ddy)| {
+                    grid.cells[i] = around.iter().find_map(|&(ddx, ddy)| {
                         let (col, row) = frame_pixel(f, flipped, sx + ddx, sy + ddy)?;
                         let c = f.pixels[(row * f.width + col) as usize];
                         (c != TRANSPARENT).then_some(c as u8)
