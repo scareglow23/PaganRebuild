@@ -452,10 +452,10 @@ impl Game {
         self.started = true;
         self.ui.title = None;
         // what the player had the Avatar do (walk, climb, fight) ends
-        self.approaching = None;
-        self.climb_goal = None;
-        self.click_fight = None;
-        self.walk_level = None;
+        self.orders.approaching = None;
+        self.orders.climb_goal = None;
+        self.orders.click_fight = None;
+        self.orders.walk_level = None;
         self.ui.hover = None;
         self.ui.hover_name = None;
     }

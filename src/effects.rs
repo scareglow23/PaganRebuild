@@ -186,13 +186,13 @@ impl Game {
         // it until the space between them is small, from whatever side (by
         // the corners a big golem was out of reach from one side). Scripts
         // keep the old measure: they lead him into gates and onto marks.
-        let by_gap = pf.actor == AVATAR && pf.target != 0 && self.approaching == Some(pf.target);
+        let by_gap = pf.actor == AVATAR && pf.target != 0 && self.orders.approaching == Some(pf.target);
         let Some((tx, ty, reach)) = self.walk_goal(pf, &it, by_gap) else { return true };
         pf.ticks += 1;
         let (dx, dy) = (tx - it.x, ty - it.y);
         // sent by a click to a spot on another level: only there is he there
-        let level = if pf.actor == AVATAR && pf.target == 0 { self.walk_level } else { None };
-        let exact = level.is_some() && self.walk_exact;
+        let level = if pf.actor == AVATAR && pf.target == 0 { self.orders.walk_level } else { None };
+        let exact = level.is_some() && self.orders.walk_exact;
         let reach = if exact { reach.min(12) } else { reach };
         let arrived = dx.abs().max(dy.abs()) <= reach && on_level(level, it.z);
         // Sent by the player to a spot on the ground, the Avatar keeps the
@@ -269,7 +269,7 @@ impl Game {
             return true;
         }
         // the player's Avatar walks or runs as he has chosen
-        let run = pf.actor == AVATAR && self.approaching.is_some() && self.run_toggle;
+        let run = pf.actor == AVATAR && self.orders.approaching.is_some() && self.orders.run_toggle;
         self.inputs.insert(pf.actor, MoveInput { dir: dir.rem_euclid(8) as u8, run });
         false
     }
@@ -908,6 +908,6 @@ impl Game {
     /// but a walk the player sent him on (a click, going for an enemy,
     /// climbing on the way) does not count - a new order replaces it.
     pub fn player_may_order(&self) -> bool {
-        !self.stasis && self.ask.is_none() && (!self.inputs.contains_key(&AVATAR) || self.approaching.is_some() || self.climb_goal.is_some())
+        !self.stasis && self.ask.is_none() && (!self.inputs.contains_key(&AVATAR) || self.orders.approaching.is_some() || self.orders.climb_goal.is_some())
     }
 }

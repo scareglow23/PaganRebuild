@@ -102,7 +102,7 @@ pub fn follow_input(game: &Game, (mx, my): (i32, i32), view_h: i32) -> Option<Mo
         return None;
     }
     let far = dist > view_h as f32 * 0.35;
-    Some(MoveInput { dir: game.unturn_dir(screen_dir(dx, 2.0 * dy)), run: far || game.run_toggle })
+    Some(MoveInput { dir: game.unturn_dir(screen_dir(dx, 2.0 * dy)), run: far || game.orders.run_toggle })
 }
 
 /// The game runs at 30 ticks per second.
@@ -680,8 +680,8 @@ impl Play {
         let shift = self.window.is_key_down(Key::LeftShift) || self.window.is_key_down(Key::RightShift);
         let game = &mut self.game;
         if modern && shift && !self.shift_was_down && game.ui.drag.is_none() {
-            game.run_toggle = !game.run_toggle;
-            let text = match (game.run_toggle, game.language) {
+            game.orders.run_toggle = !game.orders.run_toggle;
+            let text = match (game.orders.run_toggle, game.language) {
                 (true, 'G') => "Rennen",
                 (false, 'G') => "Gehen",
                 (true, 'F') => "Courir",
@@ -706,9 +706,9 @@ impl Play {
         let right_on_gump = self.right_on_gump;
         // the arrows turn the pages of the journal and the spell book
         let browsing = game.reader_browses();
-        let input = read_input(window, &self.surf, modern.then_some(game.run_toggle), game.options.road_keys)
+        let input = read_input(window, &self.surf, modern.then_some(game.orders.run_toggle), game.options.road_keys)
             .filter(|_| !right_on_gump || !window.get_mouse_down(MouseButton::Right))
-            .or_else(|| stick_input(window, modern.then_some(game.run_toggle)))
+            .or_else(|| stick_input(window, modern.then_some(game.orders.run_toggle)))
             // answers are picked with the arrows: the Avatar stays
             .filter(|_| game.ask.is_none() && !browsing)
             // directions on screen mean other directions in a turned view
@@ -1094,7 +1094,7 @@ impl Play {
             }
         } else if let (Some((hx, hy, at)), Some((x, y))) = (self.held_walk, mouse) {
             let far = (x - hx).abs() + (y - hy).abs() > 24;
-            if game.click_fight.is_none() && game.fighting() && game.tick.wrapping_sub(at) >= 10 && (far || !game.walking()) {
+            if game.orders.click_fight.is_none() && game.fighting() && game.tick.wrapping_sub(at) >= 10 && (far || !game.walking()) {
                 game.walk_to_pointer(x, y);
                 self.held_walk = Some((x, y, game.tick));
             }

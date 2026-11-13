@@ -489,10 +489,10 @@ impl Explorer {
             Goal::Use { since, .. } | Goal::Walk { since, .. } => {
                 let since = *since;
                 let id = if let Goal::Use { id, .. } = self.goal { Some(id) } else { None };
-                let busy = game.walking() || game.approaching.is_some() || game.mover(AVATAR).busy();
+                let busy = game.walking() || game.orders.approaching.is_some() || game.mover(AVATAR).busy();
                 // (his hit points on the way, the last ones before he uses it)
                 if let Goal::Use { at_hand, .. } = &mut self.goal {
-                    if game.walking() || game.approaching.is_some() {
+                    if game.walking() || game.orders.approaching.is_some() {
                         *at_hand = Some(game.state(AVATAR).hp);
                     }
                 }

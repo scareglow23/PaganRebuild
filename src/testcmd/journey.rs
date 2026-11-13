@@ -311,10 +311,10 @@ pub(super) fn run(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _
         "rush" => {
             // rush:...  as reach, at a run (the run switch on): away from
             // enemies too strong for him
-            let was = game.run_toggle;
-            game.run_toggle = true;
+            let was = game.orders.run_toggle;
+            game.orders.run_toggle = true;
             let r = run(game, surf, opts, _st, "reach", arg, cmd);
-            game.run_toggle = was;
+            game.orders.run_toggle = was;
             return r;
         }
         "reach" => {
@@ -442,7 +442,7 @@ pub(super) fn run(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _
             game.use_or_approach(id);
             for n in 0..STEP_TICKS {
                 tick(game, n);
-                if n > 10 && !game.walking() && game.approaching.is_none() && !game.mover(crate::game::AVATAR).busy() {
+                if n > 10 && !game.walking() && game.orders.approaching.is_none() && !game.mover(crate::game::AVATAR).busy() {
                     break;
                 }
             }
@@ -491,8 +491,8 @@ pub(super) fn run(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _
                 wait_for(game, "free", STEP_TICKS, cmd)?;
                 game.start_walk(x, y);
                 if z.is_some() {
-                    game.walk_level = z;
-                    game.walk_exact = true;
+                    game.orders.walk_level = z;
+                    game.orders.walk_exact = true;
                 }
                 let mut attacked = false;
                 let hp = game.state(crate::game::AVATAR).hp;
@@ -537,8 +537,8 @@ pub(super) fn run(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _
                 let off = (a.x - x).abs().max((a.y - y).abs()) > 12;
                 if off && !game.walking() && game.player_in_control() && !game.mover(crate::game::AVATAR).busy() {
                     game.start_walk(x, y);
-                    game.walk_level = Some(z);
-                    game.walk_exact = true;
+                    game.orders.walk_level = Some(z);
+                    game.orders.walk_exact = true;
                     clicks += 1;
                 }
                 tick(game, n);
@@ -621,7 +621,7 @@ pub(super) fn run(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _
             if let Some(it) = game.map().get(id).copied().filter(|it| it.in_world() && !game.can_drag(id)) {
                 game.start_walk(it.x, it.y);
                 // (on its level: not down over an edge to below it)
-                game.walk_level = Some(it.z);
+                game.orders.walk_level = Some(it.z);
                 for n in 0..STEP_TICKS {
                     tick(game, n);
                     if game.can_drag(id) || (n > 10 && !game.walking()) {
@@ -653,8 +653,8 @@ pub(super) fn run(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _
             let v: Vec<i32> = arg.split(',').map(|s| s.trim().parse::<i32>().map_err(|_| format!("bad number in '{cmd}'"))).collect::<Result<_, _>>()?;
             let [x, y] = v[..] else { return Err(format!("'{cmd}' expects x,y")) };
             wait_for(game, "free", STEP_TICKS, cmd)?;
-            let was = game.run_toggle;
-            game.run_toggle = true;
+            let was = game.orders.run_toggle;
+            game.orders.run_toggle = true;
             game.start_walk(x, y);
             for n in 0..STEP_TICKS {
                 tick(game, n);
@@ -662,7 +662,7 @@ pub(super) fn run(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _
                     break;
                 }
             }
-            game.run_toggle = was;
+            game.orders.run_toggle = was;
             let a = game.avatar();
             if (a.x - x).abs() > 96 || (a.y - y).abs() > 96 || game.state(crate::game::AVATAR).dead {
                 return Err(format!("{cmd}: not there, {}", situation(game)));
@@ -755,11 +755,11 @@ pub(super) fn run(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _
             wait_for(game, "free", STEP_TICKS, cmd)?;
             game.cancel_approach();
             game.start_walk(x, y);
-            game.walk_level = Some(z);
-            game.climb_goal = Some(crate::jump::ClimbGoal::new(x, y, z));
+            game.orders.walk_level = Some(z);
+            game.orders.climb_goal = Some(crate::jump::ClimbGoal::new(x, y, z));
             for n in 0..STEP_TICKS {
                 tick(game, n);
-                if n > 10 && !game.walking() && game.climb_goal.is_none() && !game.mover(crate::game::AVATAR).busy() {
+                if n > 10 && !game.walking() && game.orders.climb_goal.is_none() && !game.mover(crate::game::AVATAR).busy() {
                     break;
                 }
             }

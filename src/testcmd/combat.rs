@@ -181,7 +181,7 @@ fn cmd_hidden(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _st: 
 fn cmd_attacknear(game: &mut Game, _surf: &mut Surface, _opts: &mut ViewOptions, _st: &mut State, _name: &str, arg: &str, cmd: &str) -> Result<Flow, String> {
     let num = |s: &str| number(s, cmd);
     game.attack_nearest();
-    println!("attacknear: target {:?}", game.click_fight.map(|f| f.target));
+    println!("attacknear: target {:?}", game.orders.click_fight.map(|f| f.target));
     for _ in 0..(if arg.is_empty() { 0 } else { num(arg)? }) {
         game.step(None);
     }

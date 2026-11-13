@@ -170,12 +170,6 @@ pub struct Game {
     pub revealed_path: crate::hash::HashMap<usize, crate::hash::HashMap<u16, u32>>,
     /// Townsfolk walking about in Tenebrae (option "passers-by").
     pub passersby: Vec<crate::passersby::Passer>,
-    /// The height of the spot the player sent the Avatar to with a click:
-    /// he has only arrived on that level (a click below an edge is not
-    /// reached by standing above it).
-    pub walk_level: Option<i32>,
-    /// That spot is on something small (a pillar): only there exactly is he there.
-    pub walk_exact: bool,
     /// For every moving actor the items it touched after its last step,
     /// so that their "got hit" scripts run once per contact.
     pub touching: HashMap<u16, Vec<u16>>,
@@ -284,17 +278,8 @@ pub struct Game {
     pub(crate) full_hp: HashMap<u16, i32>,
     /// 'E', 'G' or 'F': language of the game data.
     pub language: char,
-    /// Modern controls: the item the Avatar walks to in order to use it,
-    /// and the item under the pointer.
-    pub(crate) approaching: Option<u16>,
-    /// Walking by click to a higher place (see jump.rs).
-    pub(crate) climb_goal: Option<crate::jump::ClimbGoal>,
     /// A look script running on the side to find that name.
     pub(crate) name_probe: Option<crate::hover::NameProbe>,
-    /// Fighting by clicking: the enemy the Avatar goes for.
-    pub(crate) click_fight: Option<crate::controls::ClickFight>,
-    /// Modern controls: shift switches between walking and running.
-    pub run_toggle: bool,
     /// The game itself has begun (a name was given or a game loaded);
     /// before that there is no world behind the menus.
     pub started: bool,
@@ -305,6 +290,8 @@ pub struct Game {
     pub turn: crate::turnview::TurnView,
     /// The windows, menus, books and other things on the screen for the player (ui.rs).
     pub ui: crate::ui::Ui,
+    /// What the player has told the Avatar to do (controls.rs).
+    pub(crate) orders: crate::controls::Orders,
     /// The view and what the last picture showed.
     pub view: ViewState,
     /// The game's own data from its files (gamedata.rs).
@@ -383,8 +370,6 @@ impl Game {
             revealed_path: Default::default(),
             map_states: Default::default(),
             passersby: Vec::new(),
-            walk_level: None,
-            walk_exact: false,
             touching: HashMap::default(),
             mana: start_mana,
             vitals: Default::default(),
@@ -451,16 +436,13 @@ impl Game {
             options: settings.1,
             full_hp: HashMap::default(),
             language: initial.to_ascii_uppercase(),
-            approaching: None,
-            climb_goal: None,
-            click_fight: None,
             name_probe: None,
-            run_toggle: false,
             started: true,
             quit: false,
             avatar_name: "Avatar".to_string(),
             turn: crate::turnview::TurnView::default(),
             view: ViewState::new(),
+            orders: Default::default(),
         };
         game.data.mark_lying();
         game.load_map(cur_map);

@@ -87,19 +87,19 @@ impl Game {
     /// One tick of walking by click to a higher place: the ledges on the
     /// way are climbed.
     pub fn tick_auto_climb(&mut self) {
-        let Some(mut g) = self.climb_goal else { return };
+        let Some(mut g) = self.orders.climb_goal else { return };
         if g.nudging {
             // one step at a time
             self.inputs.remove(&AVATAR);
             g.nudging = false;
         }
         if self.state(AVATAR).dead || self.stasis || self.ask.is_some() {
-            self.climb_goal = None;
+            self.orders.climb_goal = None;
             return;
         }
         // still on the way, or in the middle of a step or a climb
         if self.walking() || self.mover(AVATAR).busy() {
-            self.climb_goal = Some(g);
+            self.orders.climb_goal = Some(g);
             return;
         }
         let av = self.avatar();
@@ -113,7 +113,7 @@ impl Game {
             if g.walk_on && !close {
                 self.climb_walk_on(g);
             } else {
-                self.climb_goal = None;
+                self.orders.climb_goal = None;
             }
             return;
         }
@@ -122,7 +122,7 @@ impl Game {
         if g.climbs < 8 && self.try_climb(&[d, d + 1, d + 7, d + 2, d + 6], true) {
             g.climbs += 1;
             g.walk_on = true;
-            self.climb_goal = Some(g);
+            self.orders.climb_goal = Some(g);
         } else if g.walk_on {
             // climbed, but not yet high enough: on to the next ledge
             self.climb_walk_on(g);
@@ -134,10 +134,10 @@ impl Game {
             g.steps += 1;
             g.nudging = true;
             self.inputs.insert(AVATAR, crate::actor::MoveInput { dir: d, run: false });
-            self.climb_goal = Some(g);
+            self.orders.climb_goal = Some(g);
         } else {
             // no way up from here
-            self.climb_goal = None;
+            self.orders.climb_goal = None;
             self.animate(AVATAR, anim::SHAKE_HEAD);
         }
     }
@@ -145,7 +145,7 @@ impl Game {
     /// Will the Avatar, standing at height `z`, climb on towards the spot
     /// clicked when his walk ends (it lies higher up)?
     pub(crate) fn climb_follows(&self, z: i32) -> bool {
-        self.climb_goal.is_some_and(|g| z + 8 < g.z)
+        self.orders.climb_goal.is_some_and(|g| z + 8 < g.z)
     }
 
     /// Is something in the way within two steps in direction `d`, at the
@@ -167,8 +167,8 @@ impl Game {
         g.steps = 0;
         self.start_walk(g.x, g.y);
         // (still for the height clicked: not into the room below a roof)
-        self.walk_level = Some(g.z);
-        self.climb_goal = Some(g);
+        self.orders.walk_level = Some(g.z);
+        self.orders.climb_goal = Some(g);
     }
 
     /// The spot on the ground a view position points at: the top of the
