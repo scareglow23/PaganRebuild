@@ -786,9 +786,14 @@ impl Play {
             }
         }
         // reading: any click or space turns the page
-        // (walking with the keys or the stick, a jump goes straight ahead:
-        // the pointer may be anywhere then)
-        let pointer = mouse_pos(window, MouseMode::Discard).map(|(x, y)| (x as i32, y as i32)).filter(|_| !steered(window));
+        // (walking with the keys or the stick, and with the pad's jump
+        // button, a jump goes straight ahead - up a ledge in front, or ahead
+        // over the ground: the pointer may be anywhere then. Standing, he
+        // turned to it and shook his head where there was nothing to land
+        // on, facing another way after. Towards the pointer the pad jumps
+        // with LT.)
+        let from_pad = window.pad_holds(Key::J) || window.pad_holds(Key::Space);
+        let pointer = mouse_pos(window, MouseMode::Discard).map(|(x, y)| (x as i32, y as i32)).filter(|_| !steered(window) && !from_pad);
         if window.is_key_pressed(Key::Space, KeyRepeat::No) || window.is_key_pressed(Key::Enter, KeyRepeat::No) {
             if game.ui.reader.is_some() {
                 game.reader_next();

@@ -640,6 +640,11 @@ impl Window {
         self.app.window.as_ref().map_or((1, 1), |w| (w.inner_size().width.max(1), w.inner_size().height.max(1)))
     }
 
+    /// Is this key held by a button of the pad (not by the keyboard)?
+    pub fn pad_holds(&self, k: Key) -> bool {
+        self.virtual_down.contains(&k)
+    }
+
     /// The keys and mouse buttons (left, right) the pad holds down now.
     /// Keys that come anew count as pressed in this picture, the ones
     /// missing are let go. `repeat`: held keys pressed again (by repeating).
