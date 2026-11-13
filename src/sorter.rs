@@ -471,8 +471,28 @@ impl Sorter {
         d.flat && d.z <= i.z
     }
 
+    /// A figure climbing onto a ledge is painted after the ledge. What
+    /// the ledge covers and what stands in front of the figure (a wall
+    /// beside him, under the eaves of the roof he climbs) then closed a
+    /// circle: ledge, figure, wall, ledge - and the wall was painted over
+    /// the roof for as long as he climbed. Such a thing stays under the
+    /// ledge, and with it behind the figure.
+    fn keep_under_climbed_ledge(&mut self) {
+        let Some(f) = self.items.iter().position(|it| it.climbing && !it.occluded) else { return };
+        let ledges: Vec<usize> = self.items[f].depends.iter().copied().filter(|&d| climbed_ledge(&self.items[d], &self.items[f])).collect();
+        if ledges.is_empty() {
+            return;
+        }
+        for x in 0..self.items.len() {
+            if x != f && self.items[x].depends.contains(&f) && ledges.iter().any(|&l| self.items[l].depends.contains(&x)) {
+                self.items[x].depends.retain(|&d| d != f);
+            }
+        }
+    }
+
     /// Returns the visible items in the order they have to be painted.
     pub fn paint_order(mut self) -> Vec<SortItem> {
+        self.keep_under_climbed_ledge();
         let n = self.items.len();
         let mut list: Vec<usize> = (0..n).collect();
         list.sort_unstable_by_key(|&i| self.list_key(i));
