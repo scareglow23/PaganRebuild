@@ -180,7 +180,7 @@ impl Game {
                 let height = self.data.infos.get(cur.shape as usize).map_or(0, |si| si.z * 8);
                 let (sx, sy) = self.to_screen(cur.x, cur.y, cur.z);
                 // upside down the feet are the top of the picture
-                return Some(if self.inverted { (sx, self.unflip_y(sy) - 8) } else { (sx, sy - height - 8) });
+                return Some(if self.screen.inverted { (sx, self.unflip_y(sy) - 8) } else { (sx, sy - height - 8) });
             }
         }
         None

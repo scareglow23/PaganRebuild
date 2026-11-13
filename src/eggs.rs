@@ -198,9 +198,9 @@ impl Game {
     /// map or to another place on this one, as the original does with its
     /// teleporters.
     pub fn gate_teleport_to(&mut self, target: (usize, Destination)) {
-        if self.options.map_fade && self.fade.is_none() {
+        if self.options.map_fade && self.screen.fade.is_none() {
             self.gate_teleport = Some(target);
-            self.fade = Some(Fade::new((0, 0, 0), 0, 256, GATE_FADE_OUT));
+            self.screen.fade = Some(Fade::new((0, 0, 0), 0, 256, GATE_FADE_OUT));
         } else {
             self.pending_teleport = Some(target);
         }
@@ -210,12 +210,12 @@ impl Game {
     /// view fades in again on the other side (option "Fade when teleporting").
     pub fn gate_fade_done(&mut self) {
         let Some(target) = self.gate_teleport else { return };
-        if self.fade.is_some_and(|f| f.elapsed < f.steps) {
+        if self.screen.fade.is_some_and(|f| f.elapsed < f.steps) {
             return;
         }
         self.gate_teleport = None;
         self.pending_teleport = Some(target);
-        self.fade = Some(Fade::new((0, 0, 0), 256, 0, GATE_FADE_IN));
+        self.screen.fade = Some(Fade::new((0, 0, 0), 256, 0, GATE_FADE_IN));
     }
 
     /// Carries out a teleport requested by a script or an egg.  Done
@@ -276,9 +276,9 @@ impl Game {
             // an earthquake ends with the map: the script that would have
             // stopped it may just have ended above (a trap that shakes the
             // ground and lets the Avatar fall into a teleporter below)
-            self.quake = 0;
-            self.quake_by = 0;
-            self.quake_offset = (0, 0);
+            self.screen.quake = 0;
+            self.screen.quake_by = 0;
+            self.screen.quake_offset = (0, 0);
             self.barks.clear();
             self.audio.stop_all_sfx();
             self.ask = None;
@@ -419,7 +419,7 @@ impl Game {
     /// attacked, in the middle of the scene that holds the Avatar still).
     pub fn free_actor_id(&self) -> Option<u16> {
         (2..256u16).find(|id| {
-            self.actor_anywhere(*id).is_none() && !self.npc_stats.contains_key(id)
+            self.actor_anywhere(*id).is_none() && !self.people.npc_stats.contains_key(id)
         })
     }
 

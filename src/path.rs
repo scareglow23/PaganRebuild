@@ -430,7 +430,7 @@ impl Game {
             let id = self.sched_next;
             self.sched_next = if id >= 255 { 0 } else { id + 1 };
             // the Avatar has one too (it switches the weather effects)
-            if self.actor_anywhere(id).is_none() || !self.npc_stats.contains_key(&id) {
+            if self.actor_anywhere(id).is_none() || !self.people.npc_stats.contains_key(&id) {
                 return;
             }
             if self.state(id).dead || self.state(id).in_combat {

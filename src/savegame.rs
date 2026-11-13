@@ -382,9 +382,9 @@ impl Game {
             tick: &self.tick,
             rng: &self.rng,
             maps: &self.maps,
-            npcs: &self.npcs,
+            npcs: &self.people.npcs,
             actors: &self.actors,
-            npc_dirs: &self.npc_dirs,
+            npc_dirs: &self.people.npc_dirs,
             states: &self.fights.states,
             mana: &self.mana,
             globals: &globals,
@@ -407,8 +407,8 @@ impl Game {
             time_offset: &self.time_offset,
             sched_last_hour: &self.sched_last_hour,
             sched_next: &self.sched_next,
-            pal_transform: &self.pal_transform,
-            inverted: &self.inverted,
+            pal_transform: &self.screen.pal_transform,
+            inverted: &self.screen.inverted,
             airwalk: &self.airwalk,
         };
         let mut bytes = MAGIC.to_vec();
@@ -425,8 +425,8 @@ impl Game {
     /// What is not in a savegame and belongs to the game left behind
     /// starts fresh after loading.
     fn reset_after_load(&mut self) {
-        self.quake = 0;
-        self.quake_by = 0;
+        self.screen.quake = 0;
+        self.screen.quake_by = 0;
         // (the walks are searched again; what was tried before belongs to
         // the game left behind)
         self.paths.clear();
@@ -443,7 +443,7 @@ impl Game {
         self.view.cam_smooth = None;
         self.view.painted.clear();
         self.ui.drag = None;
-        self.fade = None;
+        self.screen.fade = None;
         self.avatar_died = None;
         self.just_destroyed.clear();
         self.end_orphaned_processes();
@@ -497,9 +497,9 @@ impl Game {
             crate::mapfix::fix_map(n, map, || self.original_map(n));
         }
         self.maps = maps;
-        self.npcs = d.npcs;
+        self.people.npcs = d.npcs;
         self.actors = d.actors;
-        self.npc_dirs = d.npc_dirs;
+        self.people.npc_dirs = d.npc_dirs;
         self.fights.states = d.states;
         self.mana = d.mana;
         self.vitals = vitals;
@@ -557,10 +557,10 @@ impl Game {
         self.sched_last_hour = d.sched_last_hour;
         self.sched_after_scene.clear();
         self.sched_next = d.sched_next;
-        self.pal_transform = d.pal_transform;
+        self.screen.pal_transform = d.pal_transform;
         self.data.pal.set_transform(crate::palette::shown_transform(d.pal_transform, self.options.storm));
-        self.storm_shown = self.options.storm;
-        self.inverted = d.inverted;
+        self.screen.storm_shown = self.options.storm;
+        self.screen.inverted = d.inverted;
         self.airwalk = d.airwalk;
         self.reset_after_load();
         (self.avatar_name, self.fights.full_hp) = extra.unwrap_or_else(|| ("Avatar".to_string(), HashMap::default()));

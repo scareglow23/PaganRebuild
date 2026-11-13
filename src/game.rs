@@ -125,21 +125,28 @@ impl ViewState {
     }
 }
 
+/// The people of the game (the permanent NPCs, numbers below 256): what
+/// the game's files and a savegame say about them, by their number.
+pub struct People {
+    /// Those that are not on a loaded map, with the map they wait on.
+    pub(crate) npcs: Vec<Npc>,
+    /// The way each of them faces.
+    pub(crate) npc_dirs: HashMap<u16, u8>,
+    /// Their four values (strength ...) as in the game's files.
+    pub(crate) npc_stats: HashMap<u16, [u8; 4]>,
+    /// Alignment byte and actor flags.
+    pub(crate) npc_combat: HashMap<u16, (u8, u32)>,
+}
+
 pub struct Game {
     pub(crate) fixed: Flex,
     pub(crate) nonfixed: Flex,
     globs: Flex,
-    /// Permanent NPCs that are not on the current map.
-    pub npcs: Vec<Npc>,
     pub maps: HashMap<usize, MapData>,
     pub cur_map: usize,
 
     /// Animation state of the actors that have moved so far.
     pub actors: HashMap<u16, Mover>,
-    pub npc_dirs: HashMap<u16, u8>,
-    pub npc_stats: HashMap<u16, [u8; 4]>,
-    /// Alignment byte and actor flags of the permanent NPCs.
-    pub npc_combat: HashMap<u16, (u8, u32)>,
     /// Ticks until the fallen Avatar gets up again.
     pub avatar_died: Option<u32>,
     /// Things destroyed by a script this tick: a script may still read
@@ -199,25 +206,11 @@ pub struct Game {
     /// Directions scripts make actors walk in this tick.
     pub inputs: HashMap<u16, MoveInput>,
     pub camera: crate::effects::CameraMode,
-    pub fade: Option<crate::effects::Fade>,
 
     /// Started with --cheat: the game's own debug functions are unlocked.
     pub cheat: bool,
     /// What the cheat keys F8 / F9 put on (it vanishes on the next press).
     pub cheat_worn: Vec<u16>,
-    /// Strength of the earthquake shaking the view (0 = none), and where
-    /// it has pushed the view in this tick (screen pixels).
-    pub quake: i32,
-    pub quake_offset: (i32, i32),
-    /// The script process that set the earthquake (0: none): one started
-    /// before it may not weaken or end it (scripts.rs, `quake_blocked`).
-    pub quake_by: u16,
-    /// The view is shown upside down (a spell).
-    pub inverted: bool,
-    /// Colour transform of the palette (storms).
-    pub pal_transform: u8,
-    /// The "storm colours" setting the colours on screen were made with.
-    pub storm_shown: usize,
     /// The Avatar walks on air (a spell).
     pub airwalk: bool,
     /// Game time at tick 0, in ticks.
@@ -267,6 +260,10 @@ pub struct Game {
     pub ui: crate::ui::Ui,
     /// Who fights, and how the creatures stand to it (combat.rs).
     pub(crate) fights: crate::combat::Fights,
+    /// The people of the game, by their number.
+    pub(crate) people: People,
+    /// What changes the whole picture: fades, earthquake, storm colours (effects.rs).
+    pub(crate) screen: crate::effects::ScreenEffects,
     /// What the player has told the Avatar to do (controls.rs).
     pub(crate) orders: crate::controls::Orders,
     /// The view and what the last picture showed.
@@ -334,9 +331,12 @@ impl Game {
             fixed: open("FIXED.DAT")?,
             nonfixed,
             globs: open("GLOB.FLX")?,
-            npc_dirs: npcs.iter().map(|n| (n.item.id, n.dir)).collect(),
-            npc_stats: npcs.iter().map(|n| (n.item.id, n.stats)).collect(),
-            npc_combat: npcs.iter().map(|n| (n.item.id, (n.align, n.flags))).collect(),
+            people: People {
+                npc_dirs: npcs.iter().map(|n| (n.item.id, n.dir)).collect(),
+                npc_stats: npcs.iter().map(|n| (n.item.id, n.stats)).collect(),
+                npc_combat: npcs.iter().map(|n| (n.item.id, (n.align, n.flags))).collect(),
+                npcs,
+            },
             avatar_died: None,
             just_destroyed: Default::default(),
             revealed_path: Default::default(),
@@ -344,7 +344,6 @@ impl Game {
             touching: HashMap::default(),
             mana: start_mana,
             vitals: Default::default(),
-            npcs,
             maps: HashMap::default(),
             cur_map,
             actors: HashMap::default(),
@@ -377,15 +376,8 @@ impl Game {
             just_teleported: false,
             inputs: HashMap::default(),
             camera: crate::effects::CameraMode::Follow(AVATAR),
-            fade: None,
             cheat: false,
             cheat_worn: Vec::new(),
-            quake: 0,
-            quake_by: 0,
-            quake_offset: (0, 0),
-            inverted: false,
-            pal_transform: 0,
-            storm_shown: 1,
             airwalk: false,
             // a new game starts at eight in the morning
             time_offset: 8 * 27000,
@@ -412,6 +404,7 @@ impl Game {
             view: ViewState::new(),
             fights: Default::default(),
             orders: Default::default(),
+            screen: crate::effects::ScreenEffects { storm_shown: 1, ..Default::default() },
         };
         game.data.mark_lying();
         game.load_map(cur_map);
@@ -424,7 +417,7 @@ impl Game {
             mapnum: cur_map as u16,
             ..Item::default()
         });
-        let mut mover = Mover::new(game.npc_dirs.get(&AVATAR).copied().unwrap_or(4));
+        let mut mover = Mover::new(game.people.npc_dirs.get(&AVATAR).copied().unwrap_or(4));
         mover.auto_stand = true;
         game.actors.insert(AVATAR, mover);
         game.cache_in();
@@ -441,10 +434,10 @@ impl Game {
             return;
         }
         let sources: Vec<&[u8]> = [&self.fixed, &self.nonfixed].iter().filter_map(|f| f.get(n)).collect();
-        let here: Vec<Item> = self.npcs.iter().filter(|npc| npc.map == n).map(|npc| npc.item).collect();
+        let here: Vec<Item> = self.people.npcs.iter().filter(|npc| npc.map == n).map(|npc| npc.item).collect();
         let mut map = MapData::build(&sources, &here, &self.globs, &self.data.infos);
         crate::mapfix::fix_map(n, &mut map, || MapData::build(&sources, &[], &self.globs, &self.data.infos));
-        self.npcs.retain(|npc| npc.map != n);
+        self.people.npcs.retain(|npc| npc.map != n);
         self.maps.insert(n, map);
     }
 
@@ -527,7 +520,7 @@ impl Game {
         if let Some((&n, it)) = self.maps.iter().find_map(|(n, m)| m.get(id).map(|it| (n, it))) {
             return Some((n, *it));
         }
-        self.npcs.iter().find(|npc| npc.item.id == id).map(|npc| (npc.map, npc.item))
+        self.people.npcs.iter().find(|npc| npc.item.id == id).map(|npc| (npc.map, npc.item))
     }
 
     /// The map an actor is on (loading it if it is not loaded yet).
@@ -538,7 +531,7 @@ impl Game {
         if let Some((&n, _)) = self.maps.iter().find(|(_, m)| m.index(id).is_some()) {
             return Some(n);
         }
-        let n = self.npcs.iter().find(|npc| npc.item.id == id)?.map;
+        let n = self.people.npcs.iter().find(|npc| npc.item.id == id)?.map;
         self.load_map(n);
         self.maps[&n].index(id).is_some().then_some(n)
     }
@@ -655,9 +648,9 @@ impl Game {
             self.cancel_approach();
         }
         // the setting "storm colours" changed during a storm: at once
-        if self.storm_shown != self.options.storm {
-            self.storm_shown = self.options.storm;
-            if self.pal_transform == 3 {
+        if self.screen.storm_shown != self.options.storm {
+            self.screen.storm_shown = self.options.storm;
+            if self.screen.pal_transform == 3 {
                 self.data.pal.set_transform(crate::palette::shown_transform(3, self.options.storm));
             }
         }
@@ -944,7 +937,7 @@ impl Game {
         // speech above the speakers (and the name of what is under the pointer)
         self.draw_barks(surf, &xf, ts, name_ts);
         // upside down the words turn with the world, as before
-        if self.inverted {
+        if self.screen.inverted {
             self.draw_avatar_words(surf);
         }
         self.mark_sharp(surf.width, surf.height, av_index);
@@ -962,7 +955,7 @@ impl Game {
             let it = &mut self.map_mut().items[idx];
             (it.x, it.y, it.z) = pos;
         }
-        if self.inverted {
+        if self.screen.inverted {
             surf.flip_rows();
         }
         self.ui.minimap_area = None;
@@ -972,7 +965,7 @@ impl Game {
         self.draw_status(surf);
         self.draw_gumps(surf);
         self.draw_window_barks(surf);
-        if !self.inverted {
+        if !self.screen.inverted {
             self.draw_avatar_words(surf);
         }
         self.end_hover_label();
@@ -1240,7 +1233,7 @@ impl Game {
     fn view_centre(&mut self) -> (i32, i32, i32) {
         let target = self.camera_position();
         // an earthquake shakes the view directly; it is not smoothed away
-        let (qx, qy) = self.quake_offset;
+        let (qx, qy) = self.screen.quake_offset;
         let quake = (2 * qx + 4 * qy, -2 * qx + 4 * qy);
         let t = ((target.0 - quake.0) as f32, (target.1 - quake.1) as f32, target.2 as f32);
         let now = std::time::Instant::now();
@@ -1349,7 +1342,7 @@ impl Game {
     /// that they hit what is seen there; walking by keys or towards the
     /// pointer stays turned round, as in the original.
     pub fn unflip_y(&self, y: i32) -> i32 {
-        if self.inverted { self.view.size.1 - 1 - y } else { y }
+        if self.screen.inverted { self.view.size.1 - 1 - y } else { y }
     }
 
     /// The object id of the topmost item drawn at a screen position.

@@ -303,7 +303,7 @@ impl Game {
         // (the active area goes with the view)
         self.camera = crate::effects::CameraMode::Follow(AVATAR);
         self.avatar_died = None;
-        self.fade = None;
+        self.screen.fade = None;
         self.ui.title = None;
         self.ui.slot_menu = None;
         let s = self.state_mut(AVATAR);

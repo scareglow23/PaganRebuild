@@ -932,7 +932,7 @@ impl crate::game::Game {
         let flipped = it.flags & FLG_FLIPPED != 0;
         let (action, n, dir) = match self.actors.get(&it.id) {
             Some(m) => (m.shown().0, m.shown().1, m.dir),
-            None => (crate::anim::STAND, 0, self.npc_dirs.get(&it.id).copied().unwrap_or(4)),
+            None => (crate::anim::STAND, 0, self.people.npc_dirs.get(&it.id).copied().unwrap_or(4)),
         };
         let dir = (dir as i32 + 2 * quarter).rem_euclid(8) as u8;
         match self.data.anims.action(it.shape, action).or_else(|| self.data.anims.action(it.shape, crate::anim::STAND)) {

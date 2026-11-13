@@ -73,7 +73,7 @@ impl Game {
             let idx = m.index(id)?;
             return Some(f(&mut m.items[idx]));
         }
-        self.npcs.iter_mut().find(|n| n.item.id == id).map(|n| f(&mut n.item))
+        self.people.npcs.iter_mut().find(|n| n.item.id == id).map(|n| f(&mut n.item))
     }
 
     /// May an item of this shape be put at the position?
@@ -153,7 +153,7 @@ impl Game {
     /// quake die away and stopped the one of his last words with it.)
     fn quake_caller(&self, caller: usize) -> Option<u16> {
         let pid = self.scripts.procs.get(caller).map_or(0, |p| p.pid);
-        let owner = self.quake_by;
+        let owner = self.screen.quake_by;
         let owner_alive = owner != 0 && self.scripts.procs.iter().any(|p| p.pid == owner && !p.terminated);
         // started before the owner (the numbers count up, wrapping around)
         let older = (owner.wrapping_sub(pid) as i16) > 0;
@@ -292,7 +292,7 @@ impl Game {
         // drowns in two spots of water at once: the first sends him
         // away dead, the second no longer finds him a person here
         // and destroyed him, which brought him back to life.)
-        if self.npc_stats.contains_key(&id) && self.map().index(id).is_none() {
+        if self.people.npc_stats.contains_key(&id) && self.map().index(id).is_none() {
             return;
         }
         self.from_ethereal(id);
@@ -1048,7 +1048,7 @@ impl Game {
             }
             0x9C => {
                 let id = this!();
-                self.actors.get(&id).map(|m| m.dir).or(self.npc_dirs.get(&id).copied()).unwrap_or(0) as u32
+                self.actors.get(&id).map(|m| m.dir).or(self.people.npc_dirs.get(&id).copied()).unwrap_or(0) as u32
             }
             0x9D => {
                 // getMap: where the person is, which need not be here
@@ -1071,7 +1071,7 @@ impl Game {
                 let dir = a.u16();
                 let Some(it) = self.item(id) else { return 0 };
                 let mut mover = self.actors.remove(&id).unwrap_or_else(|| {
-                    crate::actor::Mover::new(self.npc_dirs.get(&id).copied().unwrap_or(4))
+                    crate::actor::Mover::new(self.people.npc_dirs.get(&id).copied().unwrap_or(4))
                 });
                 if dir < 8 {
                     mover.dir = dir as u8;
@@ -1227,20 +1227,20 @@ impl Game {
             0xC6 => {
                 let strength = a.u16() as i32;
                 if let Some(pid) = self.quake_caller(caller) {
-                    self.quake = strength;
-                    self.quake_by = pid;
+                    self.screen.quake = strength;
+                    self.screen.quake_by = pid;
                 }
                 0
             }
             0xC7 => {
                 if self.quake_caller(caller).is_some() {
-                    self.quake = 0;
-                    self.quake_by = 0;
+                    self.screen.quake = 0;
+                    self.screen.quake_by = 0;
                 }
                 0
             }
             0xC8 => {
-                self.inverted = a.u16() != 0;
+                self.screen.inverted = a.u16() != 0;
                 0
             }
             0xDE => self.start_fade((0, 0, 0), 0, 256, 30),
@@ -1253,9 +1253,9 @@ impl Game {
                 let kind = a.u16() as u8;
                 // blended over 45 ticks; the scripts wait for it (the
                 // mushroom trip changes colours each time the fade is done)
-                self.pal_transform = kind;
+                self.screen.pal_transform = kind;
                 let shown = crate::palette::shown_transform(kind, self.options.storm);
-                self.storm_shown = self.options.storm;
+                self.screen.storm_shown = self.options.storm;
                 self.data.pal.fade_to_transform(shown, 45);
                 self.add_native(Kind::Delay(45), 0, 0) as u32
             }

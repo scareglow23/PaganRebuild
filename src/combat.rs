@@ -202,8 +202,8 @@ impl Game {
             return *s;
         }
         let shape = self.map().get(id).map_or(0, |it| it.shape);
-        let s = if let Some(stats) = self.npc_stats.get(&id).copied() {
-            let (align, flags) = self.npc_combat.get(&id).copied().unwrap_or((0, 0));
+        let s = if let Some(stats) = self.people.npc_stats.get(&id).copied() {
+            let (align, flags) = self.people.npc_combat.get(&id).copied().unwrap_or((0, 0));
             ActorState {
                 strength: stats[0] as i32,
                 dex: stats[1] as i32,
@@ -243,7 +243,7 @@ impl Game {
 
     pub fn mover(&mut self, id: u16) -> &mut Mover {
         if !self.actors.contains_key(&id) {
-            let dir = self.npc_dirs.get(&id).copied().unwrap_or(4);
+            let dir = self.people.npc_dirs.get(&id).copied().unwrap_or(4);
             self.actors.insert(id, Mover::new(dir));
         }
         self.actors.get_mut(&id).unwrap()
@@ -252,7 +252,7 @@ impl Game {
     /// Plays an animation for an actor; false if its shape has none.
     pub fn animate(&mut self, id: u16, action: u32) -> bool {
         let Some(it) = self.map().get(id).copied() else { return false };
-        let mut mover = self.actors.remove(&id).unwrap_or_else(|| Mover::new(self.npc_dirs.get(&id).copied().unwrap_or(4)));
+        let mut mover = self.actors.remove(&id).unwrap_or_else(|| Mover::new(self.people.npc_dirs.get(&id).copied().unwrap_or(4)));
         let ok = mover.play(action, &it, &mut self.data.anims);
         self.actors.insert(id, mover);
         ok
@@ -907,7 +907,7 @@ impl Game {
             // start a fight on sight, hostile or not: their script decides,
             // or a blow. The skeletons lined up in the Lower Catacombs
             // stand there swinging their axes. Only creatures attack.
-            .filter(|&id| !self.npc_stats.contains_key(&id))
+            .filter(|&id| !self.people.npc_stats.contains_key(&id))
             .collect();
         for id in idle {
             let near = self.map().get(id).is_some_and(|it| {
