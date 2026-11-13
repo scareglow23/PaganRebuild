@@ -161,7 +161,7 @@ fn cmd_hidden(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _st: 
         game.draw(surf, opts, false);
         let foes: Vec<(usize, u16)> = game.view.painted.iter().filter_map(|p| {
             let it = game.map().items.get(p.index)?;
-            let s = game.states.get(&it.id)?;
+            let s = game.fights.states.get(&it.id)?;
             (it.id != AVATAR && it.is_actor() && !s.dead && s.in_combat && s.target == AVATAR).then_some((p.index, it.id))
         }).collect();
         for (index, id) in foes {

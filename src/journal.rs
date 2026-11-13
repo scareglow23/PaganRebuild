@@ -116,7 +116,7 @@ impl Game {
             };
         }
         if let Some(t) = term.strip_prefix("dead:") {
-            return t.trim().parse::<u16>().is_ok_and(|npc| self.states.get(&npc).is_some_and(|s| s.dead));
+            return t.trim().parse::<u16>().is_ok_and(|npc| self.fights.states.get(&npc).is_some_and(|s| s.dead));
         }
         match term.split_once('=') {
             Some((name, val)) => val.trim().parse().is_ok_and(|v: u32| self.flag(name.trim()) == v),

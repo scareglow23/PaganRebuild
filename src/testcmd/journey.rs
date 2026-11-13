@@ -37,7 +37,7 @@ fn situation(game: &Game) -> String {
     if let Some(b) = game.barks.last() {
         s += &format!(", speech by {}: {}", b.item, b.text);
     }
-    if game.states.get(&crate::game::AVATAR).is_some_and(|s| s.dead) {
+    if game.fights.states.get(&crate::game::AVATAR).is_some_and(|s| s.dead) {
         s += ", the Avatar is dead";
     } else if !game.player_in_control() {
         s += ", the Avatar is held";
@@ -113,7 +113,7 @@ fn wait_for(game: &mut Game, cond: &str, ticks: u32, cmd: &str) -> Result<u32, S
         if met(game, cond)? {
             return Ok(n);
         }
-        if game.states.get(&crate::game::AVATAR).is_some_and(|s| s.dead) {
+        if game.fights.states.get(&crate::game::AVATAR).is_some_and(|s| s.dead) {
             return Err(format!("{cmd}: {}", situation(game)));
         }
         tick(game, n);
@@ -130,10 +130,10 @@ pub(super) fn enemies(game: &Game) -> usize {
     game.map().items_near(av.x, av.y, 384).into_iter().map(|i| game.map().items[i])
         // (people and creatures that fight; monsters that are no persons,
         // such as changelings, only close by)
-        .filter(|t| t.id != crate::game::AVATAR && !t.dead && game.states.get(&t.id).is_none_or(|s| !s.dead))
+        .filter(|t| t.id != crate::game::AVATAR && !t.dead && game.fights.states.get(&t.id).is_none_or(|s| !s.dead))
         .filter(|t| (t.x - av.x).abs() < 256 && (t.y - av.y).abs() < 256 && (t.z - av.z).abs() < 24)
         .filter(|t| if t.is_actor() {
-            game.states.get(&t.id).is_some_and(|s| s.in_combat)
+            game.fights.states.get(&t.id).is_some_and(|s| s.in_combat)
         } else {
             game.data.monsters.contains_key(&t.shape)
         })
@@ -145,7 +145,7 @@ pub(super) fn enemies(game: &Game) -> usize {
 fn fight_off(game: &mut Game, ticks: u32, cmd: &str) -> Result<u32, String> {
     let mut quiet = 0;
     for n in 0..ticks {
-        if game.states.get(&crate::game::AVATAR).is_some_and(|s| s.dead) {
+        if game.fights.states.get(&crate::game::AVATAR).is_some_and(|s| s.dead) {
             return Err(format!("{cmd}: the Avatar died, {}", situation(game)));
         }
         if enemies(game) == 0 {
@@ -530,7 +530,7 @@ pub(super) fn run(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _
             let [x, y, z, ticks] = v[..] else { return Err(format!("'{cmd}' expects x,y,z,ticks")) };
             let mut clicks = 0;
             for n in 0..ticks.max(0) as u32 {
-                if game.states.get(&crate::game::AVATAR).is_some_and(|s| s.dead) {
+                if game.fights.states.get(&crate::game::AVATAR).is_some_and(|s| s.dead) {
                     return Err(format!("{cmd}: the Avatar died, {}", situation(game)));
                 }
                 let a = game.avatar();

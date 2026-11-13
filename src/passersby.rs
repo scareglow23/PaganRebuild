@@ -171,7 +171,7 @@ impl Game {
     fn remove_passer(&mut self, id: u16) {
         self.kill_processes(id, crate::vm::PROC_TYPE_ALL);
         self.actors.remove(&id);
-        self.states.remove(&id);
+        self.fights.states.remove(&id);
         if let Some(idx) = self.map().index(id) {
             self.map_mut().destroy(idx);
         }

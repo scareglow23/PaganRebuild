@@ -197,7 +197,7 @@ impl Game {
         // keeps to itself (the theurgists on the Plane of Air, who
         // are there to talk to, do not see the Avatar as a foe)
         if activity == 1 {
-            self.script_made.remove(&id);
+            self.fights.script_made.remove(&id);
         }
         // a new activity other than fighting ends a fight
         if activity != 1 && self.state(id).in_combat {
@@ -214,7 +214,7 @@ impl Game {
             }
             _ => {
                 // standing: it does not notice the Avatar on sight
-                self.calmed.insert(id);
+                self.fights.calmed.insert(id);
                 self.animate(id, anim::STAND);
                 0
             }
@@ -226,8 +226,8 @@ impl Game {
     fn create_ethereal_actor(&mut self, shape: u32, frame: u32) -> Option<u16> {
         let id = self.free_actor_id()?;
         // a fresh creature, even if the number was used before
-        self.states.remove(&id);
-        self.full_hp.remove(&id);
+        self.fights.states.remove(&id);
+        self.fights.full_hp.remove(&id);
         self.actors.remove(&id);
         let cur = self.cur_map as u16;
         self.map_mut().add(Item {
@@ -241,7 +241,7 @@ impl Game {
             ..Item::default()
         });
         self.ethereal.push((id, ETHEREAL));
-        self.script_made.insert(id);
+        self.fights.script_made.insert(id);
         Some(id)
     }
 
@@ -305,7 +305,7 @@ impl Game {
             self.map_mut().destroy(idx);
         }
         self.actors.remove(&id);
-        self.states.remove(&id);
+        self.fights.states.remove(&id);
     }
 
     /// A new item in the world at a position.
@@ -944,7 +944,7 @@ impl Game {
             0x83 | 0x84 => {
                 let id = this!();
                 if func == 0x84 && self.state(id).in_combat {
-                    self.calmed.insert(id);
+                    self.fights.calmed.insert(id);
                 }
                 self.set_in_combat(id, func == 0x83);
                 0

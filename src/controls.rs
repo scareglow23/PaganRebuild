@@ -54,7 +54,7 @@ impl Game {
     /// Does using this item do anything?
     pub fn usable(&mut self, id: u16) -> bool {
         let Some(it) = self.map().get(id).copied() else { return false };
-        if id != AVATAR && self.states.get(&id).is_some_and(|s| s.dead) {
+        if id != AVATAR && self.fights.states.get(&id).is_some_and(|s| s.dead) {
             return true; // a body can be searched
         }
         // the quarters of the Great Pentacle: their script does something
@@ -81,7 +81,7 @@ impl Game {
         // and someone with something to say (a click talks to them, as
         // Arcadion in the Obsidian Fortress, whose kind would fight him)
         let (dead, hates_him) = (s.dead, s.enemy_alignment & me.alignment != 0);
-        let peaceful = (s.alignment & crate::combat::TOWNSFOLK != 0 || self.script_made.contains(&id) || self.usable(id)) && !fights_him;
+        let peaceful = (s.alignment & crate::combat::TOWNSFOLK != 0 || self.fights.script_made.contains(&id) || self.usable(id)) && !fights_him;
         !dead && hates_him && !peaceful
     }
 
@@ -497,7 +497,7 @@ impl Game {
         let s = self.state(id);
         // (also someone still fighting whose foe has fallen: Malchir after
         // the daemon he called up went down, who hates nobody by his kind)
-        let target_gone = s.target == 0 || self.states.get(&s.target).is_some_and(|t| t.dead);
+        let target_gone = s.target == 0 || self.fights.states.get(&s.target).is_some_and(|t| t.dead);
         // (and a creature that hates him but fights someone else: the
         // skeleton fighting the golem; not one that takes orders by a
         // click, as the golem itself)

@@ -140,7 +140,7 @@ impl Game {
             if it.parent == IN_WORLD {
                 self.kill_processes(it.id, crate::vm::PROC_TYPE_ALL);
                 self.actors.remove(&it.id);
-                self.states.remove(&it.id);
+                self.fights.states.remove(&it.id);
                 self.map_mut().destroy(idx);
             }
         } else if it.id != 0 {
@@ -357,7 +357,7 @@ impl Game {
     /// creatures (numbers from 256 on) stay with it, those of `next` come
     /// back. A changeling in the Avatar's shape takes its own again.
     pub fn stash_map_states(&mut self, next: usize) {
-        for (id, _) in std::mem::take(&mut self.changelings) {
+        for (id, _) in std::mem::take(&mut self.fights.changelings) {
             if let Some(idx) = self.map().index(id) {
                 if self.map().items[idx].shape != crate::combat::CHANGELING {
                     self.map_mut().items[idx].shape = crate::combat::CHANGELING;
@@ -365,13 +365,13 @@ impl Game {
                 }
             }
         }
-        let local: Vec<u16> = self.states.keys().copied().filter(|&id| id >= FIRST_MAP_ID).collect();
-        let stash: crate::hash::HashMap<u16, crate::combat::ActorState> = local.into_iter().filter_map(|id| Some((id, self.states.remove(&id)?))).collect();
-        self.script_made.retain(|&id| id < FIRST_MAP_ID);
-        self.calmed.retain(|&id| id < FIRST_MAP_ID);
-        self.map_states.insert(self.cur_map, stash);
-        if let Some(back) = self.map_states.remove(&next) {
-            self.states.extend(back);
+        let local: Vec<u16> = self.fights.states.keys().copied().filter(|&id| id >= FIRST_MAP_ID).collect();
+        let stash: crate::hash::HashMap<u16, crate::combat::ActorState> = local.into_iter().filter_map(|id| Some((id, self.fights.states.remove(&id)?))).collect();
+        self.fights.script_made.retain(|&id| id < FIRST_MAP_ID);
+        self.fights.calmed.retain(|&id| id < FIRST_MAP_ID);
+        self.fights.map_states.insert(self.cur_map, stash);
+        if let Some(back) = self.fights.map_states.remove(&next) {
+            self.fights.states.extend(back);
         }
     }
 
@@ -381,6 +381,7 @@ impl Game {
     /// off as fighters, sinking into the ground) goes back to its place.
     pub fn repair_foreign_states(&mut self) {
         let mut foreign: Vec<u16> = self
+            .fights
             .states
             .keys()
             .chain(self.actors.keys())
@@ -395,7 +396,7 @@ impl Game {
         // the map as it was made, for where its fixed things belong
         let fresh = self.original_map(self.cur_map);
         for id in foreign {
-            self.states.remove(&id);
+            self.fights.states.remove(&id);
             // (its walking and falling too)
             self.actors.remove(&id);
             self.kill_processes(id, crate::vm::PROC_TYPE_ALL);
@@ -482,10 +483,10 @@ impl Game {
         mover.play(anim::STAND, &item, &mut self.data.anims);
         self.actors.insert(id, mover);
         // a fresh creature, even if the id was used before
-        self.states.remove(&id);
-        self.script_made.remove(&id);
-        self.calmed.remove(&id);
-        self.changelings.remove(&id);
+        self.fights.states.remove(&id);
+        self.fights.script_made.remove(&id);
+        self.fights.calmed.remove(&id);
+        self.fights.changelings.remove(&id);
         self.state(id);
         // what the egg says the creature does: 0 wander about, 1 look for a
         // fight, 2 stand where it is (the toraxen in their pens on map 7):
@@ -499,7 +500,7 @@ impl Game {
             1 if townsfolk => self.start_loitering(id),
             1 => self.set_in_combat(id, true),
             2 => {
-                self.calmed.insert(id);
+                self.fights.calmed.insert(id);
             }
             _ => {}
         }

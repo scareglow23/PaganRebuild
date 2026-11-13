@@ -140,11 +140,6 @@ pub struct Game {
     pub npc_stats: HashMap<u16, [u8; 4]>,
     /// Alignment byte and actor flags of the permanent NPCs.
     pub npc_combat: HashMap<u16, (u8, u32)>,
-    pub states: HashMap<u16, crate::combat::ActorState>,
-    /// The fight states of the creatures of the maps the Avatar is not on
-    /// (their numbers from 256 on belong to one map: on another the same
-    /// number is something else, a floor tile, say).
-    pub map_states: HashMap<usize, HashMap<u16, crate::combat::ActorState>>,
     /// Ticks until the fallen Avatar gets up again.
     pub avatar_died: Option<u32>,
     /// Things destroyed by a script this tick: a script may still read
@@ -152,19 +147,6 @@ pub struct Game {
     /// the unlit one), as in the original, where they live on to the end
     /// of the tick.
     pub just_destroyed: crate::hash::HashMap<u16, crate::map::Item>,
-    /// Creatures a script took out of a fight (Confusion Blast ...): they
-    /// do not start another one on sight, only when attacked again.
-    pub calmed: crate::hash::HashSet<u16>,
-    /// Creatures a script made (createActor) for a scene: they do not start
-    /// fights on sight, only when their script puts them in one (or they
-    /// are attacked). The ghouls at Lothian's ceremony are such.
-    pub script_made: crate::hash::HashSet<u16>,
-    /// Changelings in the middle of taking the Avatar's shape (combat.rs):
-    /// the step they are at and when it ends.
-    pub changelings: crate::hash::HashMap<u16, crate::combat::Shift>,
-    /// Killed creatures that get up again, and the tick when (combat.rs).
-    /// Not saved: in a loaded game they stay down.
-    pub resurrections: crate::hash::HashMap<u16, u32>,
     /// Tiles of the invisible path a thrown thing has shown, per map, with
     /// the tick they were shown (pathreveal.rs).
     pub revealed_path: crate::hash::HashMap<usize, crate::hash::HashMap<u16, u32>>,
@@ -246,11 +228,6 @@ pub struct Game {
     /// 32 grid). The same search again finds nothing new - and one that
     /// finds no way can take a good part of a frame.
     pub path_tried: HashMap<u16, (i32, i32, i32, i32)>,
-    /// Creatures whose walks to their enemy brought them no closer: the
-    /// gap after the last walk and how many walks in a row failed.
-    pub approach_fails: HashMap<u16, (i32, u32)>,
-    /// Creatures on their way to where they last saw the vanished Avatar.
-    pub searching: HashSet<u16>,
     /// Game hour of the last round of schedule scripts, and whose turn it
     /// is in the current round (0: none running).
     pub sched_last_hour: u32,
@@ -274,8 +251,6 @@ pub struct Game {
     /// The player asked for a new game; the main loop starts one.
     pub restart: bool,
     pub options: crate::menu::Options,
-    /// Health the creatures started with, for the bars above them.
-    pub(crate) full_hp: HashMap<u16, i32>,
     /// 'E', 'G' or 'F': language of the game data.
     pub language: char,
     /// A look script running on the side to find that name.
@@ -290,6 +265,8 @@ pub struct Game {
     pub turn: crate::turnview::TurnView,
     /// The windows, menus, books and other things on the screen for the player (ui.rs).
     pub ui: crate::ui::Ui,
+    /// Who fights, and how the creatures stand to it (combat.rs).
+    pub(crate) fights: crate::combat::Fights,
     /// What the player has told the Avatar to do (controls.rs).
     pub(crate) orders: crate::controls::Orders,
     /// The view and what the last picture showed.
@@ -360,15 +337,9 @@ impl Game {
             npc_dirs: npcs.iter().map(|n| (n.item.id, n.dir)).collect(),
             npc_stats: npcs.iter().map(|n| (n.item.id, n.stats)).collect(),
             npc_combat: npcs.iter().map(|n| (n.item.id, (n.align, n.flags))).collect(),
-            states: HashMap::default(),
             avatar_died: None,
             just_destroyed: Default::default(),
-            calmed: Default::default(),
-            script_made: Default::default(),
-            changelings: Default::default(),
-            resurrections: Default::default(),
             revealed_path: Default::default(),
-            map_states: Default::default(),
             passersby: Vec::new(),
             touching: HashMap::default(),
             mana: start_mana,
@@ -420,8 +391,6 @@ impl Game {
             time_offset: 8 * 27000,
             paths: HashMap::default(),
             path_tried: HashMap::default(),
-            approach_fails: HashMap::default(),
-            searching: HashSet::default(),
             sched_last_hour: 0,
             sched_after_scene: Vec::new(),
             sleep_menu: None,
@@ -434,7 +403,6 @@ impl Game {
             audio: crate::audio::Audio::new(&lang_dir.join("SOUND"), initial.to_ascii_uppercase(), sound, settings.0, settings.1.better_music, settings.1.album_music),
             restart: false,
             options: settings.1,
-            full_hp: HashMap::default(),
             language: initial.to_ascii_uppercase(),
             name_probe: None,
             started: true,
@@ -442,6 +410,7 @@ impl Game {
             avatar_name: "Avatar".to_string(),
             turn: crate::turnview::TurnView::default(),
             view: ViewState::new(),
+            fights: Default::default(),
             orders: Default::default(),
         };
         game.data.mark_lying();
@@ -1527,7 +1496,7 @@ impl Game {
             return;
         }
         // searching a body: its belongings show in the window for the dead
-        if use_it && id != AVATAR && self.states.get(&id).is_some_and(|s| s.dead) {
+        if use_it && id != AVATAR && self.fights.states.get(&id).is_some_and(|s| s.dead) {
             const BODY_GUMP: u32 = 12;
             if self.ui.gumps.iter().any(|g| g.owner == id) {
                 self.close_gump(id);

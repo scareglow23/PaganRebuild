@@ -191,7 +191,7 @@ impl Appended {
     /// Appends everything to a savegame being written, as named blocks.
     fn write(game: &Game, bytes: &mut Vec<u8>) -> Result<(), String> {
         // the Avatar's name and what the creatures' health started at
-        put_block(bytes, b"name", &(&game.avatar_name, &game.full_hp))?;
+        put_block(bytes, b"name", &(&game.avatar_name, &game.fights.full_hp))?;
         // healing, hunger, practice (vitals.rs)
         put_block(bytes, b"vitl", &game.vitals)?;
         // the order of the journal's entries (journal.rs)
@@ -199,18 +199,18 @@ impl Appended {
         // how an open book, scroll or the journal looks
         put_block(bytes, b"look", &game.ui.reader.as_ref().map(|r| r.look))?;
         // changelings in the middle of taking the Avatar's shape
-        put_block(bytes, b"chng", &game.changelings)?;
+        put_block(bytes, b"chng", &game.fights.changelings)?;
         // the fight states of the creatures of the other maps
-        put_block(bytes, b"mpst", &game.map_states)?;
+        put_block(bytes, b"mpst", &game.fights.map_states)?;
         // the spells learned (spellnotes.rs)
         put_block(bytes, b"spel", &game.spell_notes.learned)?;
         // the creatures scripts made and those a script calmed
-        put_block(bytes, b"made", &(&game.script_made, &game.calmed))?;
+        put_block(bytes, b"made", &(&game.fights.script_made, &game.fights.calmed))?;
         // the passers-by (passersby.rs)
         put_block(bytes, b"pass", &game.passersby_ids())?;
         // killed creatures that will get up again (when), and those on
         // their way to where they last saw the Avatar
-        put_block(bytes, b"rise", &(&game.resurrections, &game.searching))?;
+        put_block(bytes, b"rise", &(&game.fights.resurrections, &game.fights.searching))?;
         // the tiles of the invisible path shown so far (pathreveal.rs)
         put_block(bytes, b"path", &game.revealed_path)?;
         // the place the guide leads to (guide.rs)
@@ -260,7 +260,7 @@ impl Appended {
 
 impl Game {
     fn state_is_dead(&self) -> bool {
-        self.states.get(&AVATAR).is_some_and(|s| s.dead)
+        self.fights.states.get(&AVATAR).is_some_and(|s| s.dead)
     }
 
     /// The file of a savegame slot of this language.
@@ -385,7 +385,7 @@ impl Game {
             npcs: &self.npcs,
             actors: &self.actors,
             npc_dirs: &self.npc_dirs,
-            states: &self.states,
+            states: &self.fights.states,
             mana: &self.mana,
             globals: &globals,
             procs: &self.scripts.procs,
@@ -431,7 +431,7 @@ impl Game {
         // the game left behind)
         self.paths.clear();
         self.path_tried.clear();
-        self.approach_fails.clear();
+        self.fights.approach_fails.clear();
         self.ui.targeting = None;
         self.ui.peace_target = None;
         self.ui.slider = None;
@@ -500,7 +500,7 @@ impl Game {
         self.npcs = d.npcs;
         self.actors = d.actors;
         self.npc_dirs = d.npc_dirs;
-        self.states = d.states;
+        self.fights.states = d.states;
         self.mana = d.mana;
         self.vitals = vitals;
         self.scripts.usecode.set_globals(&d.globals);
@@ -514,26 +514,26 @@ impl Game {
         self.barks = d.barks;
         self.ask = d.ask;
         self.ui.reader = d.reader;
-        self.changelings = changelings;
-        self.map_states = map_states;
+        self.fights.changelings = changelings;
+        self.fights.map_states = map_states;
         self.spell_notes.learned = spells;
         self.set_passersby(&passersby);
-        self.resurrections = resurrections;
+        self.fights.resurrections = resurrections;
         self.revealed_path = revealed_path;
         if let Some(target) = guide_target {
             self.set_guide_target(target);
         }
-        self.searching = searching;
+        self.fights.searching = searching;
         match made {
-            Some((script_made, calmed)) => (self.script_made, self.calmed) = (script_made, calmed),
+            Some((script_made, calmed)) => (self.fights.script_made, self.fights.calmed) = (script_made, calmed),
             None => {
                 // older savegames: a golem that does not fight is the one of
                 // the spell (golems from monster eggs start fighting at once)
-                self.calmed.clear();
-                self.script_made = self.map().items.iter()
+                self.fights.calmed.clear();
+                self.fights.script_made = self.map().items.iter()
                     .filter(|it| !it.gone && it.shape == crate::magic::GOLEM_SHAPE)
                     .map(|it| it.id)
-                    .filter(|id| self.states.get(id).is_some_and(|s| !s.in_combat && !s.dead))
+                    .filter(|id| self.fights.states.get(id).is_some_and(|s| !s.in_combat && !s.dead))
                     .collect();
             }
         }
@@ -563,7 +563,7 @@ impl Game {
         self.inverted = d.inverted;
         self.airwalk = d.airwalk;
         self.reset_after_load();
-        (self.avatar_name, self.full_hp) = extra.unwrap_or_else(|| ("Avatar".to_string(), HashMap::default()));
+        (self.avatar_name, self.fights.full_hp) = extra.unwrap_or_else(|| ("Avatar".to_string(), HashMap::default()));
         // back to the music of the place, or of the fight that was going on
         self.audio.restore_music();
         self.audio.play_music(d.music);
@@ -573,7 +573,7 @@ impl Game {
         if mixed_states {
             self.repair_foreign_states();
         }
-        if self.states.get(&AVATAR).is_some_and(|s| s.in_combat) {
+        if self.fights.states.get(&AVATAR).is_some_and(|s| s.in_combat) {
             self.audio.play_combat_music(98);
         }
         Ok(())
