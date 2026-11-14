@@ -1,6 +1,6 @@
 [package]
 name = "PaganRebuild"
-version = "0.3.2"
+version = "0.4.0"
 edition = "2021"
 description = "Engine reimplementation for Ultima VIII: Pagan (reads the original game data)"
 license = "GPL-3.0-or-later"
