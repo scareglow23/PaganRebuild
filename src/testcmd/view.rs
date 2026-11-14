@@ -271,22 +271,42 @@ fn cmd_minimap(game: &mut Game, _surf: &mut Surface, _opts: &mut ViewOptions, _s
     Ok(Flow::Done)
 }
 
-/// walk with the smooth option on, drawing between the ticks,
-/// and report where the Avatar is drawn in the view
+/// smooth:<dir>[,run]  walk (run) with the smooth option on for 44 ticks,
+/// then stand; the ticks come at the game's pace (30 a second) and the view
+/// is drawn as often as it can in between. For each picture: the time, where
+/// the Avatar is, where he is drawn in the view, where the view lies, and
+/// so where the figure is drawn in the world ("figure", view pixels); then
+/// unrounded where the figure is drawn ("pos") and where the gliding
+/// camera points ("cam"), in world units.
 fn cmd_smooth(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _st: &mut State, _name: &str, arg: &str, cmd: &str) -> Result<Flow, String> {
     let num = |s: &str| number(s, cmd);
+    let (dir, run) = match arg.split_once(',') {
+        Some((d, "run")) => (d, true),
+        Some(_) => return Err(format!("{cmd}: smooth:<dir>[,run]")),
+        None => (arg, false),
+    };
     game.options.smooth_camera = true;
-    let dir = num(arg)? as u8 & 7;
+    let dir = num(dir)? as u8 & 7;
+    let start = std::time::Instant::now();
+    let tick_time = Duration::from_nanos(1_000_000_000 / 30);
     // (then stand still for a while: the view comes to rest)
-    for tick in 0..64 {
-        game.step((tick < 44).then_some(MoveInput { dir, run: false }));
-        for sub in 0..2 {
+    for tick in 0..64u32 {
+        game.step((tick < 44).then_some(MoveInput { dir, run }));
+        let next = start + tick_time * (tick + 1);
+        let mut sub = 0;
+        while std::time::Instant::now() < next {
             game.draw(surf, opts, false);
+            let at = start.elapsed().as_secs_f64() * 1000.0;
             let av = game.avatar();
             let shown = game.shown_at(AVATAR).unwrap_or((0, 0));
             let o = game.view.origin;
-            println!("tick {tick}.{sub}: world {},{} drawn at {},{} view {},{}", av.x, av.y, shown.0, shown.1, o.0, o.1);
-            std::thread::sleep(Duration::from_millis(16));
+            let pos = game.drawn_position(AVATAR).unwrap_or_default();
+            // (the camera's own time: when the picture began)
+            let (cam, cam_at) = game.view.cam_smooth.map_or(((0.0, 0.0, 0.0), 0.0), |c| (c.0, c.1.saturating_duration_since(start).as_secs_f64() * 1000.0));
+            println!("tick {tick}.{sub}: ms {at:.1} world {},{} drawn at {},{} view {},{} figure {},{} pos {:.2},{:.2},{:.2} cam {:.2},{:.2},{:.2} cam_ms {cam_at:.1}",
+                av.x, av.y, shown.0, shown.1, o.0, o.1, o.0 + shown.0, o.1 + shown.1, pos.0, pos.1, pos.2, cam.0, cam.1, cam.2);
+            sub += 1;
+            std::thread::sleep(Duration::from_millis(3));
         }
     }
     game.options.smooth_camera = false;

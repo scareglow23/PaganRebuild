@@ -157,6 +157,18 @@ impl Game {
         }
     }
 
+    /// The button held on the ground (hold to follow): the Avatar follows
+    /// the pointer from now on. A walk to a spot clicked before ends at
+    /// once instead of being finished first. False while he is not the
+    /// player's to move (a scene, a conversation).
+    pub fn start_following(&mut self) -> bool {
+        if !self.player_may_order() {
+            return false;
+        }
+        self.cancel_approach();
+        true
+    }
+
     /// Once the Avatar has arrived at what was clicked, he uses it.
     pub fn tick_approach(&mut self) {
         let Some(id) = self.orders.approaching else { return };

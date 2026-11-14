@@ -117,11 +117,15 @@ pub struct Mover {
     /// the ether sinks into the ground after all).
     #[serde(skip)]
     resume: Option<u32>,
+    /// Turning step by step in the middle of walking or running (see
+    /// `choose`).
+    #[serde(skip)]
+    turning_on_the_move: bool,
 }
 
 impl Mover {
     pub fn new(dir: u8) -> Mover {
-        Mover { dir: dir & 7, last_anim: STAND, first_step: true, playing: None, repeat: 0, falling: None, auto_stand: false, sfx: 0, footstep: None, stand_anim: STAND, hold: false, attack: None, hit_done: false, shown: (STAND, 0), steer: None, strict: false, careful: false, may_drop: false, fall_from: None, in_scene: false, player_walk: false, settle: false, placed: false, resume: None }
+        Mover { dir: dir & 7, last_anim: STAND, first_step: true, playing: None, repeat: 0, falling: None, auto_stand: false, sfx: 0, footstep: None, stand_anim: STAND, hold: false, attack: None, hit_done: false, shown: (STAND, 0), steer: None, strict: false, careful: false, may_drop: false, fall_from: None, in_scene: false, player_walk: false, settle: false, placed: false, resume: None, turning_on_the_move: false }
     }
 
     /// Plays an animation once. Returns false if the shape has no such animation.
@@ -150,6 +154,22 @@ impl Mover {
     /// the time until the actor moves again.
     pub fn step_ticks(&self) -> u32 {
         self.playing.as_ref().map_or(1, |p| p.action.frame_repeat + 1)
+    }
+
+    /// Walking or running at this moment, at how many world units per game
+    /// tick on average (over a whole cycle of the animation): the pace the
+    /// smooth movement option shows the actor at. None for anything else
+    /// (standing, jumping, climbing, fighting, falling).
+    pub fn walk_speed(&self, shape: u32, anims: &mut AnimDat) -> Option<f32> {
+        let anim = self.shown.0;
+        if self.falling.is_some() || (anim != WALK && anim != RUN) || self.playing.as_ref().is_some_and(|p| p.id != anim) {
+            return None;
+        }
+        let action = anims.action(shape, anim)?;
+        // a step slantwise covers both axes
+        let diagonal = if X_FACTOR[self.dir as usize] != 0 && Y_FACTOR[self.dir as usize] != 0 { std::f32::consts::SQRT_2 } else { 1.0 };
+        let speed = 4.0 * action.average_stride(self.dir) * diagonal;
+        (speed > 0.0).then_some(speed)
     }
 
     /// In the middle of an animation (other than standing around) or falling.
@@ -370,6 +390,15 @@ impl Mover {
         map.position_info(&WorldBox { z: item.z - 1, ..here }, &here, infos, item.id).valid
     }
 
+    /// Two animations of a shape take the same time (frames and how long
+    /// each is shown).
+    fn same_length(shape: u32, a: u32, b: u32, anims: &mut AnimDat) -> bool {
+        match (anims.action(shape, a), anims.action(shape, b)) {
+            (Some(a), Some(b)) => a.size == b.size && a.frame_repeat == b.frame_repeat,
+            _ => false,
+        }
+    }
+
     fn choose(&mut self, input: Option<MoveInput>, item: &Item, anims: &mut AnimDat) {
         if self.hold {
             return;
@@ -379,11 +408,21 @@ impl Mover {
                 // turn one step towards the wanted direction
                 let diff = (inp.dir + 8 - self.dir) & 7;
                 self.dir = (self.dir + if diff <= 4 { 1 } else { 7 }) & 7;
+                // Turning in the middle of walking or running, he turns in
+                // the plain standing pose, not in his fighting pose: the
+                // steps show him without the raised weapon, and the
+                // fighting pose flashed up between them at every turn. Only
+                // where both poses last as long, so that nothing but the
+                // picture changes.
+                let on_the_move = self.last_anim == WALK || self.last_anim == RUN || (self.last_anim == STAND && self.turning_on_the_move);
+                let pose = if on_the_move && self.stand_anim != STAND && Self::same_length(item.shape, STAND, self.stand_anim, anims) { STAND } else { self.stand_anim };
+                self.turning_on_the_move = on_the_move;
                 self.last_anim = STAND;
                 self.first_step = true;
-                self.start(self.stand_anim, item, anims);
+                self.start(pose, item, anims);
             }
             Some(inp) => {
+                self.turning_on_the_move = false;
                 let id = if inp.run { RUN } else { WALK };
                 if self.last_anim != id {
                     self.first_step = true;
@@ -391,6 +430,7 @@ impl Mover {
                 self.start(id, item, anims);
             }
             None => {
+                self.turning_on_the_move = false;
                 // standing still, the next step starts with the first foot
                 // again; not between the steps a script walks one by one
                 // (each began with the same foot: a stiff march)

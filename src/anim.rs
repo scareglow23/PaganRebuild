@@ -112,6 +112,22 @@ impl AnimAction {
         (start, end)
     }
 
+    /// How far the actor moves on average per game tick in direction
+    /// `dir` (in units of 4, along the facing direction), over one whole
+    /// cycle of the animation. The single frames move it by quite different
+    /// amounts (the Avatar's walk: 4 to 8 per frame); this is the even pace
+    /// they add up to. A looping animation cycles through frames 1 to the
+    /// last (frame 0 only starts it).
+    pub fn average_stride(&self, dir: u8) -> f32 {
+        let first = if self.looping() && self.size > 1 { 1 } else { 0 };
+        let frames = self.size - first;
+        if frames == 0 {
+            return 0.0;
+        }
+        let along: i32 = (first..self.size).map(|n| self.frame(dir, n).delta_dir.abs()).sum();
+        along as f32 / (frames as f32 * (self.frame_repeat + 1) as f32)
+    }
+
     pub fn next_frame(&self, frame: usize, end: usize) -> usize {
         let mut f = frame + 1;
         if f == end {

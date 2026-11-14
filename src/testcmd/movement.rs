@@ -152,11 +152,16 @@ fn cmd_usenear(game: &mut Game, _surf: &mut Surface, _opts: &mut ViewOptions, _s
     Ok(Flow::Done)
 }
 
-/// follow:<x>,<y>,<ticks>  as if the button were held there (hold to follow)
+/// follow:<x>,<y>,<ticks>  as if the button were held there (hold to follow),
+/// also while the Avatar is still on his way to a spot clicked before
 fn cmd_follow(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _st: &mut State, _name: &str, arg: &str, cmd: &str) -> Result<Flow, String> {
     let parts: Vec<i32> = arg.split(',').map(|v| v.trim().parse().map_err(|_| format!("bad number in {arg}"))).collect::<Result<_, _>>()?;
     let [x, y, ticks] = parts[..] else { return Err("follow:<x>,<y>,<ticks>".into()) };
     game.draw(surf, opts, false);
+    if !game.start_following() {
+        println!("{cmd}: the Avatar is not the player's to move now");
+        return Ok(Flow::Done);
+    }
     let start = game.avatar();
     let mut seen = Vec::new();
     for _ in 0..ticks {

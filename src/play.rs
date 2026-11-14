@@ -962,16 +962,17 @@ impl Play {
         }
         self.left_held(left, mouse);
         // click-walk: the button held a moment on the ground makes the
-        // Avatar follow the pointer; a short click still walks to the spot
+        // Avatar follow the pointer; a short click still walks to the spot.
+        // Also while he is still on the way to a spot clicked before: that
+        // walk ends and he follows at once (see `start_following`).
         let game = &mut self.game;
         if left && !self.following && modern && game.options.click_walk && game.options.hold_walk && game.ui.drag.is_none() && !game.fighting() {
             if let Some(((px, py), target)) = self.press {
                 // things that can be used or picked up keep their click and drag;
                 // an open window is never ground
                 let ground = game.pick_gump(px, py).is_none() && target.is_none_or(|id| !game.usable(id) && !game.portable(id));
-                if ground && self.press_at.elapsed() >= HOLD_TO_FOLLOW && game.player_in_control() {
+                if ground && self.press_at.elapsed() >= HOLD_TO_FOLLOW && game.start_following() {
                     self.following = true;
-                    game.cancel_approach();
                 }
             }
         }
