@@ -1,0 +1,5 @@
+# Weapon drawn: turning in the middle of running he turns in the plain standing pose (the fighting pose flashed up between the steps); standing he holds the fighting pose again
+args: --map 3 --pos 14527,5887,8
+do: t5;combat;t20;w4r:16;w6r:1;w6r:3;where:1;t30;where:1
+expect: where 1: 14527,6079,8 shape 1 frame 6 dir 6
+expect: where 1: 14527,6079,8 shape 1 frame 390 dir 6
