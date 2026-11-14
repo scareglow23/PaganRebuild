@@ -1,0 +1,5 @@
+# Click-walk, then the button held elsewhere on the ground: he follows the pointer at once instead of walking on to the spot clicked first
+args: --map 3 --pos 14527,5887,8
+do: t5;walkclick:360,120;t5;follow:190,270,30;where:1
+expect: where 1: 14527,6295,8
+reject: not the player's to move
