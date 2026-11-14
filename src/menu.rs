@@ -43,7 +43,7 @@ const CONTROLS_TAB: usize = 2;
 /// The switches on each tab; the sound tab has the volumes above them.
 const TAB_SWITCHES: [&[Switch]; TABS] = [
     &[Switch::Music, Switch::BetterSound, Switch::SpatialSound, Switch::VictoryFanfare],
-    &[Switch::SmoothCamera, Switch::TurnView, Switch::Lighting, Switch::Shadows, Switch::Storm, Switch::Pixels, Switch::ShowArmour, Switch::ShowHelm, Switch::MagicGlow, Switch::WideView, Switch::MonsterFade, Switch::AvatarOutline],
+    &[Switch::SmoothCamera, Switch::EvenWalk, Switch::TurnView, Switch::Lighting, Switch::Shadows, Switch::Storm, Switch::Pixels, Switch::ShowArmour, Switch::ShowHelm, Switch::MagicGlow, Switch::WideView, Switch::MonsterFade, Switch::AvatarOutline],
     &[Switch::Controls, Switch::HoldWalk, Switch::RoadKeys, Switch::NoticeFar, Switch::TalkTruce, Switch::AvoidFlames, Switch::SleepUntil, Switch::PentagramSnap, Switch::PentagramReach],
     &[Switch::EnemyHealth, Switch::TextSize, Switch::HoverNames, Switch::Minimap, Switch::Guide, Switch::PuzzleSpots, Switch::BetterInventory, Switch::Journal, Switch::Practice],
 ];
@@ -87,11 +87,12 @@ enum Switch {
     AvoidFlames,
     MonsterFade,
     MagicGlow,
+    EvenWalk,
 }
 
 impl Switch {
-    const ALL: [Switch; 36] = [
-        Switch::SmoothCamera, Switch::EnemyHealth, Switch::Controls, Switch::RoadKeys, Switch::TurnView, Switch::Lighting, Switch::Pixels, Switch::Music, Switch::SpatialSound, Switch::TextSize, Switch::ShowArmour, Switch::ShowHelm, Switch::Minimap, Switch::BetterInventory, Switch::HoverNames, Switch::HoldWalk, Switch::Journal, Switch::Practice, Switch::AlbumMusic, Switch::BetterSound, Switch::WideView, Switch::Shadows, Switch::SleepUntil, Switch::NoticeFar, Switch::TalkTruce, Switch::VictoryFanfare, Switch::AvatarOutline, Switch::AvatarMenu, Switch::Guide, Switch::PuzzleSpots, Switch::Storm, Switch::PentagramSnap, Switch::PentagramReach, Switch::AvoidFlames, Switch::MonsterFade, Switch::MagicGlow,
+    const ALL: [Switch; 37] = [
+        Switch::SmoothCamera, Switch::EnemyHealth, Switch::Controls, Switch::RoadKeys, Switch::TurnView, Switch::Lighting, Switch::Pixels, Switch::Music, Switch::SpatialSound, Switch::TextSize, Switch::ShowArmour, Switch::ShowHelm, Switch::Minimap, Switch::BetterInventory, Switch::HoverNames, Switch::HoldWalk, Switch::Journal, Switch::Practice, Switch::AlbumMusic, Switch::BetterSound, Switch::WideView, Switch::Shadows, Switch::SleepUntil, Switch::NoticeFar, Switch::TalkTruce, Switch::VictoryFanfare, Switch::AvatarOutline, Switch::AvatarMenu, Switch::Guide, Switch::PuzzleSpots, Switch::Storm, Switch::PentagramSnap, Switch::PentagramReach, Switch::AvoidFlames, Switch::MonsterFade, Switch::MagicGlow, Switch::EvenWalk,
     ];
 
     /// Key in the settings file.
@@ -133,6 +134,7 @@ impl Switch {
             Switch::AvoidFlames => "avoid_flames",
             Switch::MonsterFade => "monster_fade",
             Switch::MagicGlow => "magic_glow",
+            Switch::EvenWalk => "even_walk",
         }
     }
 
@@ -175,6 +177,7 @@ impl Switch {
             Switch::AvoidFlames => ["Figuren meiden Flammen", "On \u{82}vite les flammes", "People avoid flames"],
             Switch::MonsterFade => ["Gegner blenden ein", "Ennemis en fondu", "Enemies fade in"],
             Switch::MagicGlow => ["Magisches Leuchten", "Lueur magique", "Magic glow"],
+            Switch::EvenWalk => ["Gleichm\u{84}\u{e1}iges Gehen", "Marche r\u{82}guli\u{8a}re", "Even walking"],
         }
     }
 
@@ -235,6 +238,10 @@ pub struct Options {
     /// Figures glide from step to step and the view glides along,
     /// instead of both jumping with every animation frame.
     pub smooth_camera: bool,
+    /// With smooth movement: walking and running figures glide at the even
+    /// pace of the whole animation instead of the pace of each frame, which
+    /// changes twice a step (game.rs, `Lerp::Glide`).
+    pub even_walk: bool,
     /// A small health bar above the creatures that fight the Avatar.
     pub enemy_health: bool,
     /// A click uses what it hits, a key uses what is at hand, the right
@@ -382,7 +389,7 @@ pub const ZOOM_NORMAL: usize = 1;
 
 impl Default for Options {
     fn default() -> Options {
-        Options { smooth_camera: true, enemy_health: true, modern_controls: true, click_walk: true, road_keys: true, turn_view: true, lighting: true, pixels: PIXELS_SHARP, zoom: ZOOM_NORMAL, text_size: 2, better_music: true, spatial_sound: true, show_armour: true, show_helm: true, minimap: true, better_inventory: true, hover_names: 0, hold_walk: true, journal: true, practice: true, album_music: true, better_sound: true, passersby: false, wide_view: true, shadows: true, sleep_until: true, notice_far: true, talk_truce: true, spell_notes: false, map_fade: true, victory_fanfare: false, avatar_outline: OUTLINE_DEFAULT, avatar_menu: false, guide: true, puzzle_spots: true, storm: 1, pentagram_snap: true, pentagram_reach: true, avoid_flames: true, monster_fade: true, seen_end: false, magic_glow: true }
+        Options { smooth_camera: true, even_walk: true, enemy_health: true, modern_controls: true, click_walk: true, road_keys: true, turn_view: true, lighting: true, pixels: PIXELS_SHARP, zoom: ZOOM_NORMAL, text_size: 2, better_music: true, spatial_sound: true, show_armour: true, show_helm: true, minimap: true, better_inventory: true, hover_names: 0, hold_walk: true, journal: true, practice: true, album_music: true, better_sound: true, passersby: false, wide_view: true, shadows: true, sleep_until: true, notice_far: true, talk_truce: true, spell_notes: false, map_fade: true, victory_fanfare: false, avatar_outline: OUTLINE_DEFAULT, avatar_menu: false, guide: true, puzzle_spots: true, storm: 1, pentagram_snap: true, pentagram_reach: true, avoid_flames: true, monster_fade: true, seen_end: false, magic_glow: true }
     }
 }
 
@@ -435,6 +442,7 @@ impl Options {
             Switch::AvoidFlames => self.avoid_flames,
             Switch::MonsterFade => self.monster_fade,
             Switch::MagicGlow => self.magic_glow,
+            Switch::EvenWalk => self.even_walk,
         }
     }
 
@@ -480,6 +488,7 @@ impl Options {
             Switch::AvoidFlames => self.avoid_flames = !self.avoid_flames,
             Switch::MonsterFade => self.monster_fade = !self.monster_fade,
             Switch::MagicGlow => self.magic_glow = !self.magic_glow,
+            Switch::EvenWalk => self.even_walk = !self.even_walk,
         }
     }
 

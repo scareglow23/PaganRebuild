@@ -36,6 +36,7 @@ pub(crate) enum Lerp {
     /// positions the steps reached, one after the other, at the even pace
     /// of the whole animation. It stays about one frame behind (as before)
     /// and never ahead: behind it is only ground already walked on.
+    /// Option "even walking"; without it walking is drawn as a `Line` too.
     Glide(Glide),
 }
 
@@ -713,7 +714,8 @@ impl Game {
                         let shown = was.as_mut().map_or((before.0 as f32, before.1 as f32, before.2 as f32), |l| l.exact(now));
                         let seconds = mover.step_ticks() as f32 / 30.0;
                         let due = now + std::time::Duration::from_secs_f32(seconds);
-                        let lerp = match (mover.walk_speed(it.shape, &mut self.data.anims), was) {
+                        let even = if self.options.even_walk { mover.walk_speed(it.shape, &mut self.data.anims) } else { None };
+                        let lerp = match (even, was) {
                             // walking on: the next position joins the way
                             (Some(speed), Some(Lerp::Glide(mut g))) => {
                                 g.way.push_back(after);
