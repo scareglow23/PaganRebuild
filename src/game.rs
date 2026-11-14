@@ -23,20 +23,134 @@ pub const GUARDIAN: u16 = 666;
 /// the top edge (the other readable colours belong to the people).
 const GUARDIAN_FONT: usize = 6;
 
-/// A move of an actor that is spread over the time until its next step.
-pub(crate) struct Lerp {
-    from: (f32, f32, f32),
-    to: (i32, i32, i32),
-    start: std::time::Instant,
-    seconds: f32,
+/// How an actor is drawn between its steps with the smooth movement option.
+/// Only the picture: the actor itself stands where its last step put it.
+pub(crate) enum Lerp {
+    /// One move spread evenly over the time until the next step (jumps,
+    /// climbing, blows, a stagger).
+    Line { from: (f32, f32, f32), to: (i32, i32, i32), start: std::time::Instant, seconds: f32 },
+    /// Walking or running. Each frame of these animations moves the actor
+    /// by a different amount (the Avatar's walk 16 to 32 units in the same
+    /// time), so a move spread over each frame on its own went on at a
+    /// pace changing twice a step. Instead the drawn figure follows the
+    /// positions the steps reached, one after the other, at the even pace
+    /// of the whole animation. It stays about one frame behind (as before)
+    /// and never ahead: behind it is only ground already walked on.
+    Glide(Glide),
+}
+
+pub(crate) struct Glide {
+    /// Where the figure is drawn.
+    at: (f32, f32, f32),
+    /// The positions still to be reached, the last one where the actor is.
+    way: std::collections::VecDeque<(i32, i32, i32)>,
+    /// The even pace, in world units per game tick.
+    speed: f32,
+    /// How far behind the actor the figure should be: the distance of one
+    /// frame at that pace.
+    lag: f32,
+    /// When the actor's next step is due, if it walks on.
+    due: std::time::Instant,
+    /// When `at` was last brought up to date.
+    last: std::time::Instant,
+}
+
+/// Distance between two points in world units.
+fn distance(a: (f32, f32, f32), b: (i32, i32, i32)) -> f32 {
+    let (dx, dy, dz) = (b.0 as f32 - a.0, b.1 as f32 - a.1, b.2 as f32 - a.2);
+    (dx * dx + dy * dy + dz * dz).sqrt()
+}
+
+impl Glide {
+    /// Brings the drawn figure along its way up to `now`.
+    fn advance(&mut self, now: std::time::Instant) {
+        let dt = now.saturating_duration_since(self.last).as_secs_f32();
+        self.last = now;
+        // (30 ticks are a second)
+        let mut left = self.speed * 30.0 * dt * self.pace(now);
+        while let Some(&next) = self.way.front() {
+            let d = distance(self.at, next);
+            if d > left {
+                let k = left / d;
+                self.at = (self.at.0 + (next.0 as f32 - self.at.0) * k, self.at.1 + (next.1 as f32 - self.at.1) * k, self.at.2 + (next.2 as f32 - self.at.2) * k);
+                break;
+            }
+            left -= d;
+            self.at = (next.0 as f32, next.1 as f32, next.2 as f32);
+            self.way.pop_front();
+        }
+    }
+
+    /// How much faster or slower than the even pace the figure goes now. It
+    /// keeps about one frame behind: a little faster when it fell further
+    /// back, a little slower when it came close. The correction is gentle;
+    /// a strong one would let the pace swing with the frames again. Far
+    /// behind (the game sped up with F4, or the picture held up) it
+    /// hurries. Once the actor has stopped (its next step did not come in
+    /// time) the figure closes up at once, within the time of a frame,
+    /// instead of slowing down on the last bit.
+    fn pace(&self, now: std::time::Instant) -> f32 {
+        let behind = self.behind();
+        let lag = self.lag.max(1.0);
+        let mut pace = 1.0 + 0.2 * (behind - lag) / lag;
+        if behind > 3.0 * lag {
+            pace += (behind - 3.0 * lag) / lag;
+        }
+        // (with some room: the ticks do not come to the millisecond)
+        if now > self.due + std::time::Duration::from_millis(20) {
+            pace = pace.max(1.0).max(behind / lag);
+        }
+        pace.max(0.0)
+    }
+
+    /// The distance from the drawn figure to the actor along the way.
+    fn behind(&self) -> f32 {
+        let mut from = self.at;
+        let mut d = 0.0;
+        for &p in &self.way {
+            d += distance(from, p);
+            from = (p.0 as f32, p.1 as f32, p.2 as f32);
+        }
+        d
+    }
 }
 
 impl Lerp {
+    /// Where the actor is now.
+    fn to(&self) -> (i32, i32, i32) {
+        match self {
+            Lerp::Line { to, .. } => *to,
+            Lerp::Glide(g) => g.way.back().copied().unwrap_or((g.at.0.round() as i32, g.at.1.round() as i32, g.at.2.round() as i32)),
+        }
+    }
+
     /// Where the actor is drawn right now, and whether the move is over.
-    fn position(&self, now: std::time::Instant) -> ((i32, i32, i32), bool) {
-        let t = (now.duration_since(self.start).as_secs_f32() / self.seconds).min(1.0);
-        let f = |a: f32, b: i32| (a + (b as f32 - a) * t).round() as i32;
-        ((f(self.from.0, self.to.0), f(self.from.1, self.to.1), f(self.from.2, self.to.2)), t >= 1.0)
+    fn position(&mut self, now: std::time::Instant) -> ((i32, i32, i32), bool) {
+        match self {
+            Lerp::Line { from, to, start, seconds } => {
+                let t = (now.duration_since(*start).as_secs_f32() / *seconds).min(1.0);
+                let f = |a: f32, b: i32| (a + (b as f32 - a) * t).round() as i32;
+                ((f(from.0, to.0), f(from.1, to.1), f(from.2, to.2)), t >= 1.0)
+            }
+            Lerp::Glide(g) => {
+                g.advance(now);
+                ((g.at.0.round() as i32, g.at.1.round() as i32, g.at.2.round() as i32), g.way.is_empty())
+            }
+        }
+    }
+
+    /// Where the actor is drawn right now, unrounded.
+    fn exact(&mut self, now: std::time::Instant) -> (f32, f32, f32) {
+        match self {
+            Lerp::Glide(g) => {
+                g.advance(now);
+                g.at
+            }
+            line => {
+                let p = line.position(now).0;
+                (p.0 as f32, p.1 as f32, p.2 as f32)
+            }
+        }
     }
 }
 
@@ -592,16 +706,36 @@ impl Game {
                     let after = (it.x, it.y, it.z);
                     let jump = (after.0 - before.0).abs().max((after.1 - before.1).abs()).max((after.2 - before.2).abs());
                     if self.options.smooth_camera && after != before && jump < 200 {
-                        // glide there until the next step is due, starting
-                        // from wherever the actor is drawn at this moment
+                        // glide there, starting from wherever the actor is
+                        // drawn at this moment
                         let now = std::time::Instant::now();
-                        let shown = self.view.lerps.get(&id).filter(|l| l.to == before).map_or(before, |l| l.position(now).0);
-                        self.view.lerps.insert(id, Lerp {
-                            from: (shown.0 as f32, shown.1 as f32, shown.2 as f32),
-                            to: after,
-                            start: now,
-                            seconds: mover.step_ticks() as f32 / 30.0,
-                        });
+                        let mut was = self.view.lerps.remove(&id).filter(|l| l.to() == before);
+                        let shown = was.as_mut().map_or((before.0 as f32, before.1 as f32, before.2 as f32), |l| l.exact(now));
+                        let seconds = mover.step_ticks() as f32 / 30.0;
+                        let due = now + std::time::Duration::from_secs_f32(seconds);
+                        let lerp = match (mover.walk_speed(it.shape, &mut self.data.anims), was) {
+                            // walking on: the next position joins the way
+                            (Some(speed), Some(Lerp::Glide(mut g))) => {
+                                g.way.push_back(after);
+                                g.speed = speed;
+                                g.lag = speed * mover.step_ticks() as f32;
+                                g.due = due;
+                                Lerp::Glide(g)
+                            }
+                            // setting out (or walking on from a jump): the
+                            // way leads over the last position to the new one
+                            (Some(speed), _) => Lerp::Glide(Glide {
+                                at: shown,
+                                way: [before, after].into_iter().collect(),
+                                speed,
+                                lag: speed * mover.step_ticks() as f32,
+                                due,
+                                last: now,
+                            }),
+                            // anything else: there until the next step is due
+                            (None, _) => Lerp::Line { from: shown, to: after, start: now, seconds },
+                        };
+                        self.view.lerps.insert(id, lerp);
                     } else if after != before {
                         self.view.lerps.remove(&id);
                     }
@@ -996,15 +1130,16 @@ impl Game {
         }
         let now = std::time::Instant::now();
         let lerps = std::mem::take(&mut self.view.lerps);
-        for (id, l) in lerps {
+        for (id, mut l) in lerps {
             let (pos, done) = l.position(now);
             let Some(idx) = self.map().index(id) else { continue };
             let it = &mut self.map_mut().items[idx];
-            if (it.x, it.y, it.z) != l.to {
+            let to = l.to();
+            if (it.x, it.y, it.z) != to {
                 continue; // moved by something else in the meantime
             }
             if !done {
-                moved.push((idx, l.to));
+                moved.push((idx, to));
                 (it.x, it.y, it.z) = pos;
                 self.view.lerps.insert(id, l);
             }
@@ -1306,6 +1441,15 @@ impl Game {
             && (!self.view.lerps.is_empty()
                 || self.view.cam_smooth.is_some_and(|(c, _)| (c.0 - t.0 as f32).abs() + (c.1 - t.1 as f32).abs() + (c.2 - t.2 as f32).abs() >= 1.0)
                 || self.view.cam_vel != (0.0, 0.0, 0.0))
+    }
+
+    /// Where an actor is drawn at this moment in the world, unrounded (with
+    /// the smooth movement option between its steps; else where it is).
+    pub(crate) fn drawn_position(&mut self, id: u16) -> Option<(f32, f32, f32)> {
+        if let Some(l) = self.view.lerps.get_mut(&id) {
+            return Some(l.exact(std::time::Instant::now()));
+        }
+        self.map().get(id).map(|it| (it.x as f32, it.y as f32, it.z as f32))
     }
 
     /// Where an item was drawn in the last frame (view coordinates).
@@ -1663,4 +1807,98 @@ pub fn roof_above(map: &MapData, infos: &[crate::shape::ShapeInfo], avatar: &Ite
 /// in a picture of `size`.
 fn view_origin(cam: (i32, i32, i32), size: (i32, i32)) -> (i32, i32) {
     ((cam.0 - cam.1) / 4 - size.0 / 2, (cam.0 + cam.1) / 8 - cam.2 - size.1 / 2)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Glide;
+    use std::time::{Duration, Instant};
+
+    /// The Avatar's walk: what each frame moves him (world units), from
+    /// standing; a frame lasts two ticks.
+    const WALK: [i32; 8] = [32, 24, 16, 32, 32, 16, 16, 32];
+    const FRAME: Duration = Duration::from_nanos(2_000_000_000 / 30);
+    const PICTURE: Duration = Duration::from_nanos(1_000_000_000 / 60);
+
+    /// A figure walking along x from 0 at the walk's even pace, as the game
+    /// sets it up for the first step.
+    fn setting_out(t: Instant) -> Glide {
+        let speed = WALK.iter().sum::<i32>() as f32 / (WALK.len() as f32 * 2.0);
+        Glide { at: (0.0, 0.0, 0.0), way: [(0, 0, 0), (WALK[0], 0, 0)].into_iter().collect(), speed, lag: speed * 2.0, due: t + FRAME, last: t }
+    }
+
+    /// Walks `frames` frames, drawing at 60 pictures a second; returns
+    /// where the figure was drawn in each picture and where the actor was.
+    fn walk(frames: usize) -> (Vec<(f32, i32)>, Instant, Glide) {
+        let t0 = Instant::now();
+        let mut g = setting_out(t0);
+        let mut real = WALK[0];
+        let mut drawn = Vec::new();
+        for k in 1..=frames {
+            for p in 0..4 {
+                g.advance(t0 + FRAME * (k as u32 - 1) + PICTURE * p);
+                drawn.push((g.at.0, real));
+            }
+            if k < frames {
+                real += WALK[k % WALK.len()];
+                g.way.push_back((real, 0, 0));
+                g.due = t0 + FRAME * (k as u32 + 1);
+            }
+        }
+        (drawn, t0 + FRAME * frames as u32, g)
+    }
+
+    #[test]
+    fn never_ahead_of_the_actor() {
+        let (drawn, ..) = walk(40);
+        for (i, &(at, real)) in drawn.iter().enumerate() {
+            assert!(at <= real as f32 + 0.01, "picture {i}: drawn at {at}, the actor is at {real}");
+        }
+        // and goes on: always forward, never back
+        assert!(drawn.windows(2).all(|w| w[1].0 >= w[0].0));
+    }
+
+    #[test]
+    fn walks_at_an_even_pace() {
+        let (drawn, ..) = walk(40);
+        // after setting out: per picture, how far it went
+        let steps: Vec<f32> = drawn[16..].windows(2).map(|w| w[1].0 - w[0].0).collect();
+        let mean = steps.iter().sum::<f32>() / steps.len() as f32;
+        for (i, s) in steps.iter().enumerate() {
+            assert!((s - mean).abs() < 0.3 * mean, "picture {}: moved {s}, on average {mean}", i + 16);
+        }
+        // (frame by frame the walk moves 16 to 32 units: twice as far)
+    }
+
+    #[test]
+    fn closes_up_after_the_last_step() {
+        let (drawn, end, mut g) = walk(20);
+        let real = drawn.last().unwrap().1;
+        // stopped: within about a frame and a half after the next step was due
+        let mut t = end;
+        while !g.way.is_empty() && t < end + FRAME * 3 {
+            t += PICTURE / 4;
+            g.advance(t);
+        }
+        assert!(g.way.is_empty(), "still behind by {}", g.behind());
+        assert_eq!(g.at.0, real as f32);
+        assert!(t <= end + FRAME * 2 + Duration::from_millis(30), "took {:?} after the last frame", t - end);
+    }
+
+    #[test]
+    fn follows_a_corner_along_the_way() {
+        // round a corner: the figure goes over the corner, not across it
+        let t = Instant::now();
+        let mut g = setting_out(t);
+        g.way = [(0, 0, 0), (40, 0, 0), (40, 40, 0)].into_iter().collect();
+        let mut now = t;
+        while !g.way.is_empty() {
+            now += PICTURE / 2;
+            g.advance(now);
+            let (x, y) = (g.at.0, g.at.1);
+            assert!(y < 0.01 || (x - 40.0).abs() < 0.01, "cut the corner at {x},{y}");
+            assert!(now < t + Duration::from_secs(2));
+        }
+        assert_eq!((g.at.0, g.at.1), (40.0, 40.0));
+    }
 }

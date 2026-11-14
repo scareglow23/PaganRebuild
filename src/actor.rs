@@ -152,6 +152,22 @@ impl Mover {
         self.playing.as_ref().map_or(1, |p| p.action.frame_repeat + 1)
     }
 
+    /// Walking or running at this moment, at how many world units per game
+    /// tick on average (over a whole cycle of the animation): the pace the
+    /// smooth movement option shows the actor at. None for anything else
+    /// (standing, jumping, climbing, fighting, falling).
+    pub fn walk_speed(&self, shape: u32, anims: &mut AnimDat) -> Option<f32> {
+        let anim = self.shown.0;
+        if self.falling.is_some() || (anim != WALK && anim != RUN) || self.playing.as_ref().is_some_and(|p| p.id != anim) {
+            return None;
+        }
+        let action = anims.action(shape, anim)?;
+        // a step slantwise covers both axes
+        let diagonal = if X_FACTOR[self.dir as usize] != 0 && Y_FACTOR[self.dir as usize] != 0 { std::f32::consts::SQRT_2 } else { 1.0 };
+        let speed = 4.0 * action.average_stride(self.dir) * diagonal;
+        (speed > 0.0).then_some(speed)
+    }
+
     /// In the middle of an animation (other than standing around) or falling.
     pub fn busy(&self) -> bool {
         self.falling.is_some() || self.playing.as_ref().is_some_and(|p| p.id != STAND && p.id != self.stand_anim)
