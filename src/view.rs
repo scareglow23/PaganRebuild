@@ -122,10 +122,6 @@ pub struct ViewOptions {
     /// Items drawn see-through (index into the items, strength 0..=256):
     /// creatures fading in.
     pub fading: Vec<(usize, u32)>,
-    /// Figures whose last pose fades out over their new one (option "blend
-    /// poses"): item index, frame and flipped of the last pose, strength
-    /// 0..=256.
-    pub echoes: Vec<(usize, u32, bool, u32)>,
     /// The figure climbing onto a ledge (index into the items), the
     /// direction it climbs in (0 = north, clockwise) and the height it
     /// climbs from: it is seen in front of the ledge (see `climbed_ledge`).
@@ -213,14 +209,6 @@ pub fn render(surf: &mut Surface, cam: &Camera, items: &[Item], infos: &[ShapeIn
                     Look::Faint(a)
                 } else if si.trans { Look::Blended } else { Look::Plain };
                 jobs.push((held.len(), si.frame, si.id as u32 + 1, si.sx, si.sy, si.flipped, look));
-                // its last pose fading out, right over it (only over a
-                // figure drawn plainly: not the invisible Avatar, not one
-                // fading in)
-                if look == Look::Plain || look == Look::Blended {
-                    if let Some(&(_, frame, flipped, a)) = opts.echoes.iter().find(|e| e.0 == si.id).filter(|e| (e.1 as usize) < shape.frames.len()) {
-                        jobs.push((held.len(), frame, 0, si.sx, si.sy, flipped, Look::Echo(a)));
-                    }
-                }
                 held.push(shape);
             }
         }
@@ -332,10 +320,6 @@ enum Look {
     /// See-through as a whole, this strong (0..=256): half for the
     /// invisible Avatar, rising for a creature fading in.
     Faint(u32),
-    /// The last pose of a figure fading out over its new one (option
-    /// "blend poses"), this strong: only seen, not there (the pointer and
-    /// the outline find the figure under it).
-    Echo(u32),
 }
 
 /// One frame to paint, in paint order.
@@ -366,10 +350,10 @@ fn paint_all(surf: &mut Surface, ids: &mut [u32], jobs: &[PaintJob], pal: &Palet
         let top = (bi * band) as i32;
         let rows = (top, top + (pixels.len() / w as usize) as i32);
         for j in jobs {
-            match j.look {
-                Look::Faint(a) => paint_faint(pixels, ids, w, rows, j.frame, j.x, j.y, j.flipped, pal, j.id, a),
-                Look::Echo(a) => paint_faint(pixels, ids, w, rows, j.frame, j.x, j.y, j.flipped, pal, 0, a),
-                _ => paint_marked(pixels, ids, w, rows, j.frame, j.x, j.y, j.flipped, j.look == Look::Blended, pal, j.id),
+            if let Look::Faint(a) = j.look {
+                paint_faint(pixels, ids, w, rows, j.frame, j.x, j.y, j.flipped, pal, j.id, a);
+            } else {
+                paint_marked(pixels, ids, w, rows, j.frame, j.x, j.y, j.flipped, j.look == Look::Blended, pal, j.id);
             }
         }
     });
@@ -377,8 +361,7 @@ fn paint_all(surf: &mut Surface, ids: &mut [u32], jobs: &[PaintJob], pal: &Palet
 
 /// Paints a frame see-through (`alpha` 0..=256: how much of the figure
 /// over the background) into the band `rows` (first, past the last) of a
-/// picture `w` wide, and notes its pixels in `ids` (id 0: not noted, the
-/// pixels stay with what is under them).
+/// picture `w` wide, and notes its pixels in `ids`.
 fn paint_faint(pixels: &mut [u32], ids: &mut [u32], w: i32, rows: (i32, i32), f: &Frame, x: i32, y: i32, flipped: bool, pal: &Palette, id: u32, alpha: u32) {
     let y0 = y - f.yoff;
     for row in (rows.0 - y0).max(0)..(rows.1 - y0).min(f.height) {
@@ -393,9 +376,7 @@ fn paint_faint(pixels: &mut [u32], ids: &mut [u32], w: i32, rows: (i32, i32), f:
             let mix = |s: u32, d: u32| (s * alpha + d * (256 - alpha)) >> 8;
             let s = pal.colors[c as usize];
             *p = (mix((s >> 16) & 0xFF, (*p >> 16) & 0xFF) << 16) | (mix((s >> 8) & 0xFF, (*p >> 8) & 0xFF) << 8) | mix(s & 0xFF, *p & 0xFF);
-            if id != 0 {
-                ids[(at + dx) as usize] = id;
-            }
+            ids[(at + dx) as usize] = id;
         }
     }
 }
