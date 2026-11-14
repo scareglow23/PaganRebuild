@@ -54,7 +54,22 @@ pub(crate) struct Glide {
     due: std::time::Instant,
     /// When `at` was last brought up to date.
     last: std::time::Instant,
+    /// Option "soft start and stop": the figure gathers speed when it
+    /// sets out and slows down to a halt, instead of starting at full pace
+    /// and stopping dead.
+    soft: bool,
+    /// When it set out from standing (while it is gathering speed).
+    setting_out: Option<std::time::Instant>,
 }
+
+/// Soft start: how long the figure takes to reach its full pace, in frames
+/// of the animation; at first it goes at this share of it.
+const SET_OUT_FRAMES: f32 = 1.5;
+const SET_OUT_FROM: f32 = 0.3;
+/// Soft stop: over how much of the lag (one frame's way) it slows down to
+/// a halt. More would take hold while walking on too (a frame now and then
+/// drawn at two thirds of the pace).
+const SLOW_DOWN_SHARE: f32 = 0.5;
 
 /// Distance between two points in world units.
 fn distance(a: (f32, f32, f32), b: (i32, i32, i32)) -> f32 {
@@ -98,8 +113,25 @@ impl Glide {
             pace += (behind - 3.0 * lag) / lag;
         }
         // (with some room: the ticks do not come to the millisecond)
-        if now > self.due + std::time::Duration::from_millis(20) {
+        let stopped = now > self.due + std::time::Duration::from_millis(20);
+        if stopped {
             pace = pace.max(1.0).max(behind / lag);
+        }
+        if self.soft {
+            // setting out: from a slow start up to the full pace
+            if let Some(since) = self.setting_out {
+                let frame = lag / self.speed.max(0.01) / 30.0;
+                let k = now.saturating_duration_since(since).as_secs_f32() / (SET_OUT_FRAMES * frame);
+                if k < 1.0 {
+                    pace *= SET_OUT_FROM + (1.0 - SET_OUT_FROM) * k;
+                }
+            }
+            // stopping: braking evenly over the last bit of the way, so
+            // that it comes to rest instead of stopping dead (and never
+            // so slowly that it creeps). Always in force: walking on it
+            // stays further behind than that bit, and the stop only shows
+            // once the next step does not come, too late to begin braking.
+            pace = pace.min((behind / (SLOW_DOWN_SHARE * lag)).sqrt().max(0.1));
         }
         pace.max(0.0)
     }
@@ -155,6 +187,31 @@ impl Lerp {
     }
 }
 
+/// The last pose of a figure that set out, stopped or turned: for a moment
+/// it fades out over the new one (option "blend poses"), so that the pose
+/// does not change all at once. Only the picture.
+pub(crate) struct PoseFade {
+    frame: u32,
+    flipped: bool,
+    start: std::time::Instant,
+}
+
+/// How long the last pose takes to fade out, and how strongly it is seen at
+/// first (0..=256).
+const POSE_FADE: std::time::Duration = std::time::Duration::from_millis(80);
+const POSE_FADE_FROM: f32 = 160.0;
+
+/// What an actor is doing, for blending its poses: standing (or holding
+/// its fighting pose) or walking; None for anything else (jumping,
+/// climbing, blows ...), whose poses are not blended.
+fn pose_kind(anim: u32, stand_anim: u32) -> Option<bool> {
+    match anim {
+        crate::anim::WALK | crate::anim::RUN => Some(true),
+        a if a == crate::anim::STAND || a == stand_anim => Some(false),
+        _ => None,
+    }
+}
+
 /// Text shown above an item while its process lives.
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct Bark {
@@ -185,6 +242,9 @@ pub struct ViewState {
     /// Actors on their way from one animation step to the next: drawn at
     /// positions in between while the smooth option is on.
     pub(crate) lerps: HashMap<u16, Lerp>,
+    /// Actors whose last pose fades out over their new one (option "blend
+    /// poses").
+    pub(crate) pose_fades: HashMap<u16, PoseFade>,
     /// Where the gliding camera is right now, and when it was last moved.
     pub(crate) cam_smooth: Option<((f32, f32, f32), std::time::Instant)>,
     /// The general light of the lighting as last drawn, and at which tick:
@@ -227,6 +287,7 @@ impl ViewState {
             zoom: 1.0,
             under_menu: None,
             lerps: HashMap::default(),
+            pose_fades: HashMap::default(),
             cam_smooth: None,
             ambient_now: None,
             covered_seen: (usize::MAX, HashMap::default()),
@@ -622,6 +683,7 @@ impl Game {
             // gone from here: no more steps or scripts of its own here
             self.actors.remove(&id);
             self.view.lerps.remove(&id);
+            self.view.pose_fades.remove(&id);
         }
         self.move_between_maps(id, from, map, pos);
     }
@@ -702,8 +764,16 @@ impl Game {
             if it.in_world() {
                 let map = &self.maps[&self.cur_map];
                 let before = (it.x, it.y, it.z);
+                let pose_before = (pose_kind(mover.shown().0, mover.stand_anim), mover.dir, it.frame, it.flags & crate::map::FLG_FLIPPED != 0);
                 mover.in_scene = id == AVATAR && self.stasis;
                 if mover.tick(input, &mut it, map, &self.data.infos, &mut self.data.anims) {
+                    // setting out, stopping or turning: the last pose fades
+                    // out over the new one (option)
+                    let (kind, dir, frame, flipped) = pose_before;
+                    let kind_now = pose_kind(mover.shown().0, mover.stand_anim);
+                    if self.options.pose_blend && kind.is_some() && kind_now.is_some() && (kind != kind_now || dir != mover.dir) && frame != it.frame {
+                        self.view.pose_fades.insert(id, PoseFade { frame, flipped, start: std::time::Instant::now() });
+                    }
                     let after = (it.x, it.y, it.z);
                     let jump = (after.0 - before.0).abs().max((after.1 - before.1).abs()).max((after.2 - before.2).abs());
                     if self.options.smooth_camera && after != before && jump < 200 {
@@ -715,13 +785,22 @@ impl Game {
                         let seconds = mover.step_ticks() as f32 / 30.0;
                         let due = now + std::time::Duration::from_secs_f32(seconds);
                         let even = if self.options.even_walk { mover.walk_speed(it.shape, &mut self.data.anims) } else { None };
+                        let soft = self.options.soft_steps;
+                        // (standing: no move of its own was still drawn)
+                        let from_rest = was.is_none();
                         let lerp = match (even, was) {
                             // walking on: the next position joins the way
                             (Some(speed), Some(Lerp::Glide(mut g))) => {
+                                // (it had stood for a moment, turning: it
+                                // sets out anew)
+                                if g.way.is_empty() && soft {
+                                    g.setting_out = Some(now);
+                                }
                                 g.way.push_back(after);
                                 g.speed = speed;
                                 g.lag = speed * mover.step_ticks() as f32;
                                 g.due = due;
+                                g.soft = soft;
                                 Lerp::Glide(g)
                             }
                             // setting out (or walking on from a jump): the
@@ -733,6 +812,8 @@ impl Game {
                                 lag: speed * mover.step_ticks() as f32,
                                 due,
                                 last: now,
+                                soft,
+                                setting_out: (soft && from_rest).then_some(now),
                             }),
                             // anything else: there until the next step is due
                             (None, _) => Lerp::Line { from: shown, to: after, start: now, seconds },
@@ -934,6 +1015,26 @@ impl Game {
         people
     }
 
+    /// Last poses fading out (item index, frame, flipped, strength); those
+    /// faded out are forgotten.
+    fn pose_echoes(&mut self) -> Vec<(usize, u32, bool, u32)> {
+        if !self.options.pose_blend || self.ui.menu.is_some() {
+            self.view.pose_fades.clear();
+            return Vec::new();
+        }
+        let now = std::time::Instant::now();
+        self.view.pose_fades.retain(|_, f| now.duration_since(f.start) < POSE_FADE);
+        let map = &self.maps[&self.cur_map];
+        self.view
+            .pose_fades
+            .iter()
+            .filter_map(|(&id, f)| {
+                let left = 1.0 - now.duration_since(f.start).as_secs_f32() / POSE_FADE.as_secs_f32();
+                Some((map.index(id)?, f.frame, f.flipped, (POSE_FADE_FROM * left) as u32))
+            })
+            .collect()
+    }
+
     /// Creatures fading in (item index, opacity).
     fn fading_items(&self) -> Vec<(usize, u32)> {
         self.fade_ins.keys().filter_map(|&id| Some((self.map().index(id)?, self.fade_in_alpha(id)?))).collect()
@@ -997,6 +1098,9 @@ impl Game {
         self.begin_hover_label();
         // creatures from monster eggs in sight fade in
         opts.fading = self.fading_items();
+        // last poses fading out (not in the turned view, which draws the
+        // people from their own models)
+        opts.echoes = if angle == 0.0 { self.pose_echoes() } else { Vec::new() };
         // the Avatar climbing onto a ledge is painted in front of it
         let climbing = self.actors.get(&AVATAR).filter(|m| m.busy() && (crate::anim::CLIMB_FIRST..=crate::anim::CLIMB_LAST).contains(&m.last_anim()));
         let climbing = climbing.map(|m| (m.dir, m.anim_start().map_or(avatar.z, |s| s.2)));
@@ -1439,10 +1543,12 @@ impl Game {
     /// drawn even though the game state did not change.
     pub fn camera_gliding(&self) -> bool {
         let t = self.camera_position();
-        self.options.smooth_camera
+        (self.options.smooth_camera
             && (!self.view.lerps.is_empty()
                 || self.view.cam_smooth.is_some_and(|(c, _)| (c.0 - t.0 as f32).abs() + (c.1 - t.1 as f32).abs() + (c.2 - t.2 as f32).abs() >= 1.0)
-                || self.view.cam_vel != (0.0, 0.0, 0.0))
+                || self.view.cam_vel != (0.0, 0.0, 0.0)))
+            // (a last pose still fading out)
+            || !self.view.pose_fades.is_empty()
     }
 
     /// Where an actor is drawn at this moment in the world, unrounded (with
@@ -1826,14 +1932,21 @@ mod tests {
     /// sets it up for the first step.
     fn setting_out(t: Instant) -> Glide {
         let speed = WALK.iter().sum::<i32>() as f32 / (WALK.len() as f32 * 2.0);
-        Glide { at: (0.0, 0.0, 0.0), way: [(0, 0, 0), (WALK[0], 0, 0)].into_iter().collect(), speed, lag: speed * 2.0, due: t + FRAME, last: t }
+        Glide { at: (0.0, 0.0, 0.0), way: [(0, 0, 0), (WALK[0], 0, 0)].into_iter().collect(), speed, lag: speed * 2.0, due: t + FRAME, last: t, soft: false, setting_out: None }
     }
 
     /// Walks `frames` frames, drawing at 60 pictures a second; returns
     /// where the figure was drawn in each picture and where the actor was.
     fn walk(frames: usize) -> (Vec<(f32, i32)>, Instant, Glide) {
+        walk_with(frames, false)
+    }
+
+    /// The same, with the option soft start and stop or without.
+    fn walk_with(frames: usize, soft: bool) -> (Vec<(f32, i32)>, Instant, Glide) {
         let t0 = Instant::now();
         let mut g = setting_out(t0);
+        g.soft = soft;
+        g.setting_out = soft.then_some(t0);
         let mut real = WALK[0];
         let mut drawn = Vec::new();
         for k in 1..=frames {
@@ -1885,6 +1998,54 @@ mod tests {
         assert!(g.way.is_empty(), "still behind by {}", g.behind());
         assert_eq!(g.at.0, real as f32);
         assert!(t <= end + FRAME * 2 + Duration::from_millis(30), "took {:?} after the last frame", t - end);
+    }
+
+    #[test]
+    fn soft_start_gathers_speed() {
+        let (drawn, ..) = walk_with(12, true);
+        // per picture, how far it went: rising up to the full pace
+        let steps: Vec<f32> = drawn.windows(2).map(|w| w[1].0 - w[0].0).collect();
+        let full = steps[20..].iter().sum::<f32>() / (steps.len() - 20) as f32;
+        assert!(steps[0] < 0.5 * full, "first {} full {full}", steps[0]);
+        assert!(steps.windows(2).take(4).all(|w| w[1] >= w[0]), "{steps:?}");
+        // and never ahead
+        assert!(drawn.iter().all(|&(at, real)| at <= real as f32 + 0.01));
+    }
+
+    #[test]
+    fn soft_walking_stays_even() {
+        // the braking does not take hold while walking on
+        let (drawn, ..) = walk_with(40, true);
+        let steps: Vec<f32> = drawn[16..].windows(2).map(|w| w[1].0 - w[0].0).collect();
+        let mean = steps.iter().sum::<f32>() / steps.len() as f32;
+        for (i, s) in steps.iter().enumerate() {
+            assert!((s - mean).abs() < 0.3 * mean, "picture {}: moved {s}, on average {mean}", i + 16);
+        }
+    }
+
+    #[test]
+    fn soft_stop_slows_down_to_a_halt() {
+        let (drawn, end, mut g) = walk_with(20, true);
+        let real = drawn.last().unwrap().1;
+        // the pictures on after the last step, at the same rhythm (the
+        // last one drawn was a picture before `end`)
+        let mut at: Vec<f32> = drawn.iter().map(|d| d.0).collect();
+        let mut t = end - PICTURE;
+        while !g.way.is_empty() && t < end + FRAME * 6 {
+            t += PICTURE;
+            g.advance(t);
+            at.push(g.at.0);
+        }
+        assert!(g.way.is_empty() && g.at.0 == real as f32, "still behind by {}", g.behind());
+        // not much longer than without (about a frame and a half more)
+        assert!(t <= end + FRAME * 3, "took {:?}", t - end);
+        // the last steps get smaller, one after the other: it brakes and
+        // does not stop dead from its full pace
+        let steps: Vec<f32> = at.windows(2).map(|w| w[1] - w[0]).filter(|&s| s > 0.0).collect();
+        let full = steps[16..steps.len() - 8].iter().sum::<f32>() / (steps.len() - 24) as f32;
+        let tail = &steps[steps.len() - 4..];
+        assert!(tail.windows(2).all(|w| w[1] <= w[0] + 0.01), "{tail:?}");
+        assert!(tail[3] < 0.5 * full, "last step {} of {full}", tail[3]);
     }
 
     #[test]

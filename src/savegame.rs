@@ -440,6 +440,7 @@ impl Game {
         self.fast_items = self.map().items.iter().enumerate().filter(|(_, it)| it.fast && !it.gone).map(|(i, _)| i).collect();
         self.inputs.clear();
         self.view.lerps.clear();
+        self.view.pose_fades.clear();
         self.view.outline = Default::default();
         self.view.cam_smooth = None;
         self.view.painted.clear();
