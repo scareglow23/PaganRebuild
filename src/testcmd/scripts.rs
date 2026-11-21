@@ -152,12 +152,14 @@ fn cmd_flag(game: &mut Game, _surf: &mut Surface, _opts: &mut ViewOptions, _st: 
     Ok(Flow::Done)
 }
 
-/// fx:pal<n> | fx:quake<n> | fx:quake? (print it) | fx:invert | fx:fireball | fx:hide  switch effects on for a look
+/// fx:pal<n> | fx:quake<n> | fx:quake? (print it) | fx:invert | fx:invert? (print it) | fx:fireball | fx:hide  switch effects on for a look
 fn cmd_fx(game: &mut Game, _surf: &mut Surface, _opts: &mut ViewOptions, _st: &mut State, _name: &str, arg: &str, cmd: &str) -> Result<Flow, String> {
     let num = |s: &str| number(s, cmd);
     let av = game.avatar();
     if arg == "quake?" {
         println!("quake: {}", game.screen.quake);
+    } else if arg == "invert?" {
+        println!("inverted: {}", game.screen.inverted);
     } else if let Some(n) = arg.strip_prefix("pal") {
         game.screen.pal_transform = num(n)? as u8;
         game.data.pal.set_transform(game.screen.pal_transform);

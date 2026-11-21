@@ -1,0 +1,6 @@
+# Upper Catacombs, the five levers by the cage: the first pull deals out their numbers; the lever with number 3 turns the world upside down, and pulled again turns it back (its script asks for the same both times: the engine turns it over each time)
+args: --map 54 --pos 18018,10934,16
+do: t5;use:17682;t90;item:17684;use:17684;t90;fx:invert?;use:17684;t90;fx:invert?
+expect: id 17684 shape  672 frame   5 at 18111,10655,16 flags 0001 q 3
+expect: inverted: true
+expect: inverted: false

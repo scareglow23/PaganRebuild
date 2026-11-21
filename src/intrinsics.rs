@@ -1248,7 +1248,12 @@ impl Game {
                 0
             }
             0xC8 => {
-                self.screen.inverted = a.u16() != 0;
+                // turns the world over, and back the next time: the value
+                // given is not looked at (as in ScummVM's
+                // InverterProcess::invertScreen). The lever by the cage of
+                // the Upper Catacombs passes 1 every time it is pulled;
+                // taken as "upside down" it could never be undone.
+                self.screen.inverted = !self.screen.inverted;
                 0
             }
             0xDE => self.start_fade((0, 0, 0), 0, 256, 30),
