@@ -93,8 +93,13 @@ impl Game {
 
     fn at_hand(&self, id: u16) -> bool {
         let (Some(item), avatar) = (self.map().get(id).copied(), self.avatar()) else { return false };
-        // what lies in a container or is worn is at hand
-        !item.in_world() || (self.box_gap(&avatar, &item) <= USE_REACH && (item.z - avatar.z).abs() <= REACH_HEIGHT)
+        // what lies in a container or is worn is at hand; in the world, near
+        // enough and with nothing solid between (a fence, a wall), except
+        // people, as in the original
+        !item.in_world()
+            || (self.box_gap(&avatar, &item) <= USE_REACH
+                && (item.z - avatar.z).abs() <= REACH_HEIGHT
+                && (item.is_actor() || self.clear_between(&avatar, &item)))
             // (option: all over a pentacle he stands near, to light the candles)
             || self.pentagram_reach(item.x, item.y, item.z)
     }
@@ -185,9 +190,10 @@ impl Game {
         if id == 0 {
             return; // just a walk
         }
-        // the walk ends at talking distance; no use if it never got near
+        // the walk ends at talking distance; no use if it never got near,
+        // nor across what stopped him (the bars of a cage round a chest)
         let near = match (self.map().get(id).copied(), self.avatar()) {
-            (Some(item), avatar) => self.box_gap(&avatar, &item) <= 2 * REACH,
+            (Some(item), avatar) => self.box_gap(&avatar, &item) <= 2 * REACH && (!item.in_world() || item.is_actor() || self.clear_between(&avatar, &item)),
             _ => false,
         };
         if near {
@@ -384,6 +390,11 @@ impl Game {
             // the hand reaches were left out)
             let to_use = gap <= REACH - 16 && (self.usable(it.id) || self.wear_slot(it.id).is_some());
             if !to_use && !(carry && self.can_drag(it.id)) {
+                continue;
+            }
+            // nor what is behind a wall or a fence (people are spoken to
+            // all the same, as in the original)
+            if !it.is_actor() && !self.clear_between(&avatar, &it) {
                 continue;
             }
             let (cx, cy) = centre(self, &it);

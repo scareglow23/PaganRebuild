@@ -1,7 +1,7 @@
-# Cycle through things offers what the hand reaches on a table (the tavern on map 39), as far as the mouse may pick things up: bottles, tankards, tubers, not only what "use" reaches
+# Cycle through things offers what the hand reaches on a table (the tavern on map 39), as far as the mouse may pick things up: bottles, tankards, tubers, not only what "use" reaches; not the bottle and the tuber behind the guest sitting at the table (he is in the way)
 args: --map 39 --pos 15567,12286,48
 do: t5;pickthing:1;pickthing:1;pickthing:1;pickthing:1;pickthing:1;pickthing:1;pickthing:1
 expect: pickthing name: Some("Cloven Hoof")
 expect: pickthing name: Some("tankard")
 expect: pickthing name: Some("tuber")
-expect: pickthing name: Some("Breath o' Spirit")
+reject: pickthing name: Some("Breath o' Spirit")

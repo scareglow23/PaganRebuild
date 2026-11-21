@@ -51,6 +51,26 @@ const SLIDER_RIGHT: (i32, i32, i32, i32) = (139, 17, 18, 12);
 const DMG_FIRE: u16 = 0x0008;
 const DMG_BLUNT: u16 = 0x0004;
 
+/// When the line from `s` to `e` (0 at `s`, 1 at `e`) enters the inside
+/// of a box (per axis the open range lo..hi), if it does. Along a face or
+/// through a corner does not count.
+fn entry_time(s: [f64; 3], e: [f64; 3], b: [(f64, f64); 3]) -> Option<f64> {
+    let (mut t0, mut t1) = (0.0f64, 1.0f64);
+    for k in 0..3 {
+        let (lo, hi) = b[k];
+        let d = e[k] - s[k];
+        if d == 0.0 {
+            if s[k] <= lo || s[k] >= hi {
+                return None;
+            }
+            continue;
+        }
+        let (enter, leave) = if d > 0.0 { ((lo - s[k]) / d, (hi - s[k]) / d) } else { ((hi - s[k]) / d, (lo - s[k]) / d) };
+        (t0, t1) = (t0.max(enter), t1.min(leave));
+    }
+    (t0 < t1).then_some(t0)
+}
+
 impl Game {
     // ---- picking a target ------------------------------------------------
 
@@ -296,12 +316,85 @@ impl Game {
         None
     }
 
-    /// canReach: are the two items within `range` of each other?
+    /// canReach: are the two items within `range` of each other, with
+    /// nothing solid between them?
     pub fn can_reach(&self, id: u16, other: u16, range: i32) -> bool {
         let (Some(a), Some(b)) = (self.top_item(id), self.top_item(other)) else { return false };
         let (Some(ai), Some(bi)) = (self.data.infos.get(a.shape as usize), self.data.infos.get(b.shape as usize)) else { return false };
         let (ab, bb) = (WorldBox::of(&a, ai), WorldBox::of(&b, bi));
-        !(ab.x - ab.xd - bb.x > range || bb.x - bb.xd - ab.x > range || ab.y - ab.yd - bb.y > range || bb.y - bb.yd - ab.y > range)
+        let near = !(ab.x - ab.xd - bb.x > range || bb.x - bb.xd - ab.x > range || ab.y - ab.yd - bb.y > range || bb.y - bb.yd - ab.y > range);
+        near && self.clear_between(&a, &b)
+    }
+
+    /// Nothing solid stands between `a` and `b` (both in the world; `b`
+    /// may be a thing where it would be put down). See `solid_between`.
+    pub fn clear_between(&self, a: &Item, b: &Item) -> bool {
+        self.solid_between(a, b).is_none()
+    }
+
+    /// What solid thing stands between `a` and `b`, if any. As in the
+    /// original (ScummVM's Item::canReach): a small box is moved along a
+    /// line from `a` to `b`, and `b` is reached when the box meets it
+    /// before anything solid. Three lines are tried, and one free is
+    /// enough: corner to corner (at `b`'s height when that is between
+    /// `a`'s feet and head, so that a thing on a table is not hidden by
+    /// the table), then from `a`'s eyes to the middle of `b`, then to its
+    /// top. What the box only touches does not block (the floor under
+    /// both, a counter something lies on), nor what it starts in.
+    pub fn solid_between(&self, a: &Item, b: &Item) -> Option<u16> {
+        let (Some(ai), Some(bi)) = (self.data.infos.get(a.shape as usize), self.data.infos.get(b.shape as usize)) else { return Some(0) };
+        let (ab, bb) = (WorldBox::of(a, ai), WorldBox::of(b, bi));
+        let feet_z = if b.z > a.z && b.z < a.z + ab.zd { b.z } else { a.z };
+        let eyes = [(a.x - ab.xd / 2) as f64, (a.y - ab.yd / 2) as f64, (a.z + if ab.zd > 16 { ab.zd - 8 } else { 0 }) as f64];
+        let (mid_x, mid_y) = ((b.x - bb.xd / 2) as f64, (b.y - bb.yd / 2) as f64);
+        let lines = [
+            ([a.x as f64, a.y as f64, feet_z as f64], [b.x as f64, b.y as f64, b.z as f64]),
+            (eyes, [mid_x, mid_y, (b.z + bb.zd / 2) as f64]),
+            (eyes, [mid_x, mid_y, (b.z + bb.zd) as f64]),
+        ];
+        let mut first = None;
+        for (s, e) in lines {
+            let id = self.first_in_way(s, e, a, b)?;
+            first.get_or_insert(id);
+        }
+        first
+    }
+
+    /// Moves a box of 2 x 2 x 2 (its corner) from `s` to `e`: the solid
+    /// thing it runs into before it meets `b`, if any.
+    fn first_in_way(&self, s: [f64; 3], e: [f64; 3], a: &Item, b: &Item) -> Option<u16> {
+        const PROBE: f64 = 2.0;
+        // when the box enters a thing's box, if it does (open ranges:
+        // touching it is not entering); never for one it starts in
+        let entered = |w: &WorldBox| {
+            let inside = [
+                ((w.x - w.xd) as f64, w.x as f64 + PROBE),
+                ((w.y - w.yd) as f64, w.y as f64 + PROBE),
+                (w.z as f64 - PROBE, (w.z + w.zd) as f64),
+            ];
+            let starts_in = (0..3).all(|k| inside[k].0 < s[k] && s[k] < inside[k].1);
+            if starts_in { None } else { entry_time(s, e, inside) }
+        };
+        // `b` itself (put down elsewhere it is not in the way of itself)
+        let b_at = self.data.infos.get(b.shape as usize).and_then(|bi| entered(&WorldBox::of(b, bi))).unwrap_or(f64::INFINITY);
+        let reach = ((s[0] - e[0]).abs().max((s[1] - e[1]).abs()) / 2.0) as i32 + 512;
+        let map = self.map();
+        let mut first: Option<(f64, u16)> = None;
+        for i in map.items_near(((s[0] + e[0]) / 2.0) as i32, ((s[1] + e[1]) / 2.0) as i32, reach) {
+            let it = &map.items[i];
+            if it.gone || it.id == a.id || it.id == b.id || !it.in_world() {
+                continue;
+            }
+            // (the invisible walls that only keep figures off a place, such
+            // as the edge of a pentacle, do not: nothing can be seen there)
+            let Some(si) = self.data.infos.get(it.shape as usize).filter(|si| si.solid && !si.editor) else { continue };
+            if let Some(t) = entered(&WorldBox::of(it, si)).filter(|&t| t < b_at) {
+                if first.is_none_or(|(ft, _)| t < ft) {
+                    first = Some((t, it.id));
+                }
+            }
+        }
+        first.map(|(_, id)| id)
     }
 
     /// ascend: a platform moves up or down, with what stands on it.

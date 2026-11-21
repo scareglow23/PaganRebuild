@@ -69,7 +69,10 @@ impl Game {
     /// Could the Avatar reach the item `id` if it lay at x, y, z?
     fn within_reach(&self, id: u16, x: i32, y: i32, z: i32) -> bool {
         let av = self.avatar();
-        (self.gap_at(id, x, y, z).is_some_and(|gap| gap <= REACH) && (z - av.z).abs() <= REACH_Z)
+        let there = self.map().get(id).map(|it| crate::map::Item { x, y, z, ..*it });
+        (self.gap_at(id, x, y, z).is_some_and(|gap| gap <= REACH) && (z - av.z).abs() <= REACH_Z
+            // with nothing solid between (a wall, the bars of a cage)
+            && there.is_some_and(|it| self.clear_between(&av, &it)))
             // (option: all over a pentacle he stands near)
             || self.pentagram_reach(x, y, z)
     }

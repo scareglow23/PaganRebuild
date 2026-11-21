@@ -1,0 +1,6 @@
+# Upper Catacombs: the chest stands in a cage of bars. From outside, a click on it does not open it through the bars (only the distance was looked at); the bars are in the way, as in the original
+args: --map 54 --pos 17862,10678,16
+do: t5;sight:17694;useat:17694;t200;item:17694
+expect: sight 17694: blocked by id 17686 shape  516
+expect: useat: walking to 17694
+expect: id 17694 shape   78 frame   0

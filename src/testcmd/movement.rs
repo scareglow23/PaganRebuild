@@ -10,12 +10,13 @@ pub(super) fn run(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, s
 }
 
 /// The commands of this group by name.
-const COMMANDS: [(&str, super::Group); 16] = [
+const COMMANDS: [(&str, super::Group); 17] = [
     ("walkturns", cmd_walkturns),
     ("ledges", cmd_ledges),
     ("climbwalk", cmd_climbwalk),
     ("walkto", cmd_walkto),
     ("useat", cmd_useat),
+    ("sight", cmd_sight),
     ("walkclick", cmd_walkclick),
     ("run", cmd_run),
     ("usenear", cmd_usenear),
@@ -124,6 +125,18 @@ fn cmd_walkto(game: &mut Game, _surf: &mut Surface, _opts: &mut ViewOptions, _st
     let (x, y) = point(to)?;
     let pf = effects::Pathfind::new(num(who)? as u16, 0, (x, y));
     game.add_native(vm::Kind::Pathfind(pf), num(who)? as u16, crate::effects::PROC_WALK);
+    Ok(Flow::Done)
+}
+
+/// sight:<id>  is anything solid between the Avatar and the item (what
+/// keeps him from using or taking it through a wall or a fence)?
+fn cmd_sight(game: &mut Game, _surf: &mut Surface, _opts: &mut ViewOptions, _st: &mut State, _name: &str, arg: &str, cmd: &str) -> Result<Flow, String> {
+    let id = number(arg, cmd)? as u16;
+    let it = game.map().get(id).copied().ok_or(format!("{cmd}: no item {id}"))?;
+    match game.solid_between(&game.avatar(), &it) {
+        None => println!("sight {id}: clear"),
+        Some(b) => println!("sight {id}: blocked by {}", game.map().get(b).map_or(format!("{b}"), |bi| game.describe(bi))),
+    }
     Ok(Flow::Done)
 }
 

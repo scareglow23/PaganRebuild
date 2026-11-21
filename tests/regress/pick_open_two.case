@@ -1,6 +1,6 @@
-# Two containers open at once: after a thing was picked in the first barrel's window, picking the second barrel (past the things on the table) and "use" opens it (the window's pick had kept "use" on itself)
+# Two containers open at once: after a thing was picked in the first barrel's window, picking the second barrel (past the things on the table) and "use" opens it (the window's pick had kept "use" on itself); the hay behind the barrels is not offered, a barrel is in the way
 args: --map 4 --pos 10668,10060,48
-do: t5;pickthing:1;usenear;t5;pickwin:1;pickthing:1;pickthing:1;pickthing:1;pickthing:1;pickthing:1;pickthing:1;pickthing:1;usenear;t5
+do: t5;pickthing:1;usenear;t5;pickwin:1;pickthing:1;pickthing:1;pickthing:1;pickthing:1;pickthing:1;pickthing:1;usenear;t5
 expect: usenear: id 36477 shape  115
 expect: open container: item 36462
 expect: open container: item 36477
