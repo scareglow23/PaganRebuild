@@ -413,7 +413,8 @@ impl Game {
 
     /// Weight of everything the Avatar wears and carries.
     pub fn carried_weight(&self) -> i32 {
-        self.map().items.iter().filter(|c| !c.gone && c.parent == AVATAR && c.id != 0).map(|c| self.weight(c.id)).sum()
+        let inside = self.contents_index();
+        inside.get(&AVATAR).map_or(0, |ids| ids.iter().map(|&c| self.weight_in(c, &inside)).sum())
     }
 
     /// Tells the player why something does not fit.
@@ -432,6 +433,23 @@ impl Game {
 
     /// Weight of an item with everything in it.
     pub fn weight(&self, id: u16) -> i32 {
+        self.weight_in(id, &self.contents_index())
+    }
+
+    /// The things in containers (and on figures), by what holds them:
+    /// found in one pass over the map, so that weighing a full backpack
+    /// does not go through all the things of the map once for each thing
+    /// in it (with the backpack open, that cost a millisecond a picture).
+    fn contents_index(&self) -> crate::hash::HashMap<u16, Vec<u16>> {
+        let mut inside: crate::hash::HashMap<u16, Vec<u16>> = crate::hash::HashMap::default();
+        for c in self.map().items.iter().filter(|c| !c.gone && c.id != 0 && c.parent != crate::map::IN_WORLD && c.parent != crate::map::ETHEREAL) {
+            inside.entry(c.parent).or_default().push(c.id);
+        }
+        inside
+    }
+
+    /// Weight of an item with everything in it (`inside`: contents_index).
+    fn weight_in(&self, id: u16, inside: &crate::hash::HashMap<u16, Vec<u16>>) -> i32 {
         let Some(it) = self.map().get(id) else { return 0 };
         let Some(si) = self.data.infos.get(it.shape as usize) else { return 0 };
         let w = si.raw[6] as i32;
@@ -441,7 +459,7 @@ impl Game {
             _ if it.shape == crate::potions::POTION => w * 10 * (it.quality as i32).max(1),
             _ => w * 10,
         };
-        own + self.map().items.iter().filter(|c| !c.gone && c.parent == id && c.id != 0).map(|c| self.weight(c.id)).sum::<i32>()
+        own + inside.get(&id).map_or(0, |ids| ids.iter().map(|&c| self.weight_in(c, inside)).sum::<i32>())
     }
 
     /// Weight of everything resting on top of an item (pressure plates).
