@@ -124,6 +124,28 @@ fn slot_of(x: i32) -> Option<usize> {
     (SLOT_MARK..SLOT_MARK + 0x10000).contains(&x).then(|| (x - SLOT_MARK) as usize)
 }
 
+/// What lies where in a slot window: the piles by slot (`grid_piles`).
+/// Finding them goes through all the things of the map, so a picture of
+/// the window finds them once and asks this for the rest.
+struct Grid(Vec<(usize, Vec<u16>)>);
+
+impl Grid {
+    /// The first free slot from page `page` on.
+    fn free_from(&self, page: usize) -> usize {
+        let taken: crate::hash::HashSet<usize> = self.0.iter().map(|&(s, _)| s).collect();
+        (page * PER_PAGE..).find(|s| !reserved(*s) && !taken.contains(s)).unwrap_or(1)
+    }
+
+    /// How many pages the window has: up to the last thing, and one more
+    /// if every slot so far is taken, or while something is being dragged
+    /// (so that it can be put on a new page).
+    fn pages(&self, dragging: bool) -> usize {
+        let last = self.0.last().map_or(0, |&(s, _)| s / PER_PAGE + 1);
+        let full = self.free_from(0) >= last * PER_PAGE;
+        (last + (full || dragging) as usize).max(1)
+    }
+}
+
 impl Game {
     /// Is this container shown with slots? (Option "better inventory":
     /// only the Avatar's backpack.)
@@ -275,14 +297,18 @@ impl Game {
         true
     }
 
-    /// How many pages the window of a container has: up to the last thing,
-    /// and one more if every slot so far is taken, or while something is
-    /// being dragged (so that it can be put on a new page).
-    fn grid_pages(&mut self, owner: u16) -> usize {
-        let layout = self.grid_layout(owner);
-        let last = layout.last().map_or(0, |&(s, _)| s / PER_PAGE + 1);
-        let full = self.grid_free_from(owner, 0) >= last * PER_PAGE;
-        (last + (full || self.ui.drag.is_some()) as usize).max(1)
+    /// What lies where in a container's slot window, worked out once.
+    fn grid(&mut self, owner: u16) -> Grid {
+        Grid(self.grid_piles(owner))
+    }
+
+    /// The page a container's window shows, kept within the pages `grid`
+    /// has (one fewer after the last thing of the last page was taken out).
+    fn page_in(&mut self, owner: u16, grid: &Grid) -> usize {
+        let pages = grid.pages(self.ui.drag.is_some());
+        let p = self.ui.gump_pages.get(&owner).copied().unwrap_or(0).min(pages - 1);
+        self.ui.gump_pages.insert(owner, p);
+        p
     }
 
     /// The page arrow of a slot window at a view position: the window's
@@ -302,10 +328,8 @@ impl Game {
 
     /// The page a container's window shows.
     pub fn grid_page(&mut self, owner: u16) -> usize {
-        let pages = self.grid_pages(owner);
-        let p = self.ui.gump_pages.get(&owner).copied().unwrap_or(0).min(pages - 1);
-        self.ui.gump_pages.insert(owner, p);
-        p
+        let grid = self.grid(owner);
+        self.page_in(owner, &grid)
     }
 
     /// The page a window shows, as it was last drawn (not checked against
@@ -317,8 +341,9 @@ impl Game {
 
     /// Turns the page of a container's window (`by` pages, not past the ends).
     pub fn grid_turn(&mut self, owner: u16, by: i32) -> bool {
-        let pages = self.grid_pages(owner) as i32;
-        let now = self.grid_page(owner) as i32;
+        let grid = self.grid(owner);
+        let pages = grid.pages(self.ui.drag.is_some()) as i32;
+        let now = self.page_in(owner, &grid) as i32;
         let to = (now + by).clamp(0, pages - 1);
         self.ui.gump_pages.insert(owner, to as usize);
         to != now
@@ -428,8 +453,7 @@ impl Game {
 
     /// The first free slot of a container from page `page` on.
     pub fn grid_free_from(&mut self, owner: u16, page: usize) -> usize {
-        let taken: crate::hash::HashSet<usize> = self.grid_layout(owner).into_iter().map(|(s, _)| s).collect();
-        (page * PER_PAGE..).find(|s| !reserved(*s) && !taken.contains(s)).unwrap_or(1)
+        self.grid(owner).free_from(page)
     }
 
     /// Slot of `id` if it lies in container `owner` (before it moves).
@@ -445,11 +469,7 @@ impl Game {
     /// middle of its slot), if it is on the page shown.
     pub fn grid_anchor(&mut self, gi: usize, id: u16) -> Option<(i32, i32)> {
         let (owner, gx, gy) = { let g = &self.ui.gumps[gi]; (g.owner, g.x, g.y) };
-        let page = self.grid_page(owner);
-        let (s, _) = self.grid_layout(owner).into_iter().find(|&(_, i)| i == id)?;
-        if s / PER_PAGE != page {
-            return None;
-        }
+        let s = self.slot_on_page(owner, id)?;
         let (sx, sy) = Self::slot_corner(s);
         Some((gx + sx + SLOT / 2, gy + sy - 2))
     }
@@ -458,13 +478,18 @@ impl Game {
     /// right, bottom), if it is on the page shown.
     pub fn grid_slot_rect(&mut self, gi: usize, id: u16) -> Option<(i32, i32, i32, i32)> {
         let (owner, gx, gy) = { let g = &self.ui.gumps[gi]; (g.owner, g.x, g.y) };
-        let page = self.grid_page(owner);
-        let (s, _) = self.grid_layout(owner).into_iter().find(|&(_, i)| i == id)?;
-        if s / PER_PAGE != page {
-            return None;
-        }
+        let s = self.slot_on_page(owner, id)?;
         let (sx, sy) = Self::slot_corner(s);
         Some((gx + sx, gy + sy, gx + sx + SLOT - 1, gy + sy + SLOT - 1))
+    }
+
+    /// The slot of a thing (the first of its pile) in container `owner`,
+    /// if it is on the page shown.
+    fn slot_on_page(&mut self, owner: u16, id: u16) -> Option<usize> {
+        let grid = self.grid(owner);
+        let page = self.page_in(owner, &grid);
+        let &(s, _) = grid.0.iter().find(|(_, pile)| pile[0] == id)?;
+        (s / PER_PAGE == page).then_some(s)
     }
 
     /// Draws the slot window `gi`.
@@ -486,9 +511,11 @@ impl Game {
                 }
             }
         }
-        let page = self.grid_page(owner);
-        let pages = self.grid_pages(owner);
-        let piles = self.grid_piles(owner);
+        // (found once: it goes through all the things of the map)
+        let grid = self.grid(owner);
+        let page = self.page_in(owner, &grid);
+        let pages = grid.pages(self.ui.drag.is_some());
+        let piles = grid.0;
         let layout: Vec<(usize, u16)> = piles.iter().map(|(s, p)| (*s, p[0])).collect();
         // the slots, sunk in
         for s in 0..PER_PAGE {
