@@ -443,7 +443,7 @@ impl Game {
             }
             0x20 => {
                 let id = this!();
-                self.with_actor_anywhere(id, |it| it.flags).unwrap_or(0) as u32
+                self.with_actor_anywhere(id, |it| it.script_flags()).unwrap_or(0) as u32
             }
             0x21 => {
                 let id = this!();

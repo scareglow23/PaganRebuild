@@ -38,11 +38,26 @@ pub struct Item {
     pub hatched: bool,
     /// A dead body: it is drawn but does not block the way.
     pub dead: bool,
+    /// Laid out by a glob egg of the map data (most floors and walls). The
+    /// original lays these out only near the Avatar, marked "fast only";
+    /// here they stay, but scripts see them so marked (`script_flags`).
+    /// Not saved: found again from the map data on loading.
+    #[serde(skip)]
+    pub glob: bool,
 }
 
 impl Item {
     pub fn in_world(&self) -> bool {
         !self.gone && self.parent == IN_WORLD
+    }
+
+    /// The flags as the scripts see them: what a glob egg laid out is
+    /// "fast only", as in the original. The eggs that lay out a piece of
+    /// the map anew (the crack after the earthquake in the Upper
+    /// Catacombs) clear everything not so marked first: the lava under the
+    /// crack, from a glob, would go with it.
+    pub fn script_flags(&self) -> u16 {
+        if self.glob { self.flags | crate::eggs::FLG_FAST_ONLY } else { self.flags }
     }
     /// The Avatar or another NPC (they have the ids 1..=255).
     pub fn is_actor(&self) -> bool {
@@ -102,6 +117,7 @@ fn glob_items(egg: &Item, globs: &Flex) -> Vec<Item> {
             z: egg.z + r[2] as i32,
             shape: u16le(r, 3) as u32,
             frame: r[5] as u32,
+            glob: true,
             ..Item::default()
         })
         .collect()
@@ -495,6 +511,39 @@ impl MapData {
             map.add(*npc);
         }
         map
+    }
+
+    /// After loading a savegame, which does not keep `Item::glob`: marks
+    /// what lies where a glob egg of the map data put it (`original`: the
+    /// map as the data make it), and lays out again what of it a script
+    /// destroyed, as the original does whenever the Avatar comes near.
+    /// Only what cannot be carried off (floors, walls, lava), and only in
+    /// the place it had. Returns how many things were laid out again.
+    pub fn find_globs(&mut self, original: &MapData, infos: &[ShapeInfo]) -> usize {
+        let spot = |it: &Item| (it.shape, it.x, it.y, it.z);
+        let spots: HashMap<(u32, i32, i32, i32), Item> = original.items.iter().filter(|it| it.glob && it.in_world()).map(|it| (spot(it), *it)).collect();
+        let mut here: crate::hash::HashSet<(u32, i32, i32, i32)> = crate::hash::HashSet::default();
+        for it in self.items.iter_mut().filter(|it| it.in_world()) {
+            let s = spot(it);
+            it.glob = spots.contains_key(&s);
+            here.insert(s);
+        }
+        let fixed = |it: &Item| infos.get(it.shape as usize).is_some_and(|si| si.fixed || si.raw[6] == 0 || si.roof || si.editor);
+        let lost: Vec<Item> = self
+            .items
+            .iter()
+            .filter(|it| it.gone && it.parent == IN_WORLD)
+            .filter_map(|it| spots.get(&spot(it)).copied())
+            .filter(|it| fixed(it))
+            .collect();
+        let mut laid = 0;
+        for it in lost {
+            if here.insert(spot(&it)) {
+                self.add(Item { id: 0, fast: false, hatched: false, ..it });
+                laid += 1;
+            }
+        }
+        laid
     }
 
     /// Rebuilds the lookup tables after loading a savegame.

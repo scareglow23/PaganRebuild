@@ -533,6 +533,11 @@ impl Game {
             map.reindex();
             // (savegames carry their maps: corrections to the map data apply here too)
             crate::mapfix::fix_map(n, map, || self.original_map(n));
+            // what the glob eggs laid out (see Item::glob), compared with the
+            // map data as corrected the same way
+            let mut original = self.original_map(n);
+            crate::mapfix::fix_map(n, &mut original, || self.original_map(n));
+            map.find_globs(&original, &self.data.infos);
         }
         self.maps = maps;
         self.people.npcs = d.npcs;

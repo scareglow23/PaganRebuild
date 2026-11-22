@@ -643,7 +643,7 @@ impl Game {
                     let a = st.pop().unwrap_or(0);
                     st.push((a == 0) as u16);
                 }
-                b'?' => st.push(it.flags),
+                b'?' => st.push(it.script_flags()),
                 b'*' => st.push(it.quality),
                 b'#' => st.push(it.npc),
                 b'=' => bin(|b, a| a == b, &mut st),

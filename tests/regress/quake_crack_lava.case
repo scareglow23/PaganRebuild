@@ -1,0 +1,7 @@
+# After the Skull of Quakes, two eggs in the Upper Catacombs lay the corridor near the Birthplace of Moriens out anew with a crack: they clear their piece of the map of all that is not "fast only" and copy the crack in. The lava below comes from a glob egg, which the original lays out "fast only": the clearing leaves it, and it shows through the crack (it was destroyed, the crack stayed black)
+args: --map 50 --pos 15751,6103,48
+do: t5;pack:814;use:@;t5;target:13301;t600;flag:postEarthQuake;goto:10312,1791,48;t120;pickat:280,200;pickat:380,245
+expect: flag postEarthQuake: 1
+expect: shape  409 frame  33 at 9983,1663,0
+expect: shape  409 frame  32 at 10367,1663,0
+reject: : nothing
