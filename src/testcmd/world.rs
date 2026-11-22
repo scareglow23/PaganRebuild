@@ -10,7 +10,7 @@ pub(super) fn run(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, s
 }
 
 /// The commands of this group by name.
-const COMMANDS: [(&str, super::Group); 27] = [
+const COMMANDS: [(&str, super::Group); 28] = [
     ("passersby", cmd_passersby),
     ("map", cmd_map),
     ("near", cmd_near),
@@ -18,6 +18,7 @@ const COMMANDS: [(&str, super::Group); 27] = [
     ("swapcheck", cmd_swapcheck),
     ("floorgaps", cmd_floorgaps),
     ("find", cmd_find),
+    ("chunk", cmd_chunk),
     ("item", cmd_item),
     ("findf", cmd_findf),
     ("goto", cmd_goto),
@@ -220,6 +221,20 @@ fn cmd_find(game: &mut Game, _surf: &mut Surface, _opts: &mut ViewOptions, _st: 
     let num = |s: &str| number(s, cmd);
     let shape = num(arg)? as u32;
     for it in game.map().items.iter().filter(|it| !it.gone && it.shape == shape).take(12) {
+        println!("{}", game.describe(it));
+    }
+    Ok(Flow::Done)
+}
+
+/// chunk:<x>,<y>  every thing lying in the 512 piece of the map at x, y (the
+/// pieces chunk-swapping eggs clear and copy), by height
+fn cmd_chunk(game: &mut Game, _surf: &mut Surface, _opts: &mut ViewOptions, _st: &mut State, _name: &str, arg: &str, cmd: &str) -> Result<Flow, String> {
+    let (x, y) = arg.split_once(',').ok_or(format!("'{cmd}' expects x,y"))?;
+    let (x, y) = (number(x, cmd)? & 0x7E00, number(y, cmd)? & 0x7E00);
+    let mut found: Vec<&map::Item> = game.map().items.iter().filter(|it| !it.gone && it.in_world() && it.x & 0x7E00 == x && it.y & 0x7E00 == y).collect();
+    found.sort_by_key(|it| (it.z, it.shape, it.y, it.x));
+    println!("chunk {x},{y}: {} things", found.len());
+    for it in found {
         println!("{}", game.describe(it));
     }
     Ok(Flow::Done)
