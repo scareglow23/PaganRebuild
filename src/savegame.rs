@@ -479,6 +479,7 @@ impl Game {
         self.ui.use_menu = None;
         self.view.outline = Default::default();
         self.view.cam_smooth = None;
+        self.view.cam_ride = None;
         self.view.painted.clear();
         self.ui.drag = None;
         self.screen.fade = None;

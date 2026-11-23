@@ -307,7 +307,8 @@ fn cmd_minimap(game: &mut Game, _surf: &mut Surface, _opts: &mut ViewOptions, _s
 
 /// smooth:<dir>[,run][,jump<tick>][,<fps>]  walk (run) with the smooth
 /// option on for 44 ticks, then stand (dir `at<x>/<y>`: a click on the
-/// ground at this view position first, then the walk of the click,
+/// ground at this view position first, then the walk of the click; dir
+/// `use<id>`: use that thing or person (talk), no walk by keys;
 /// climbing and all; with `jump<tick>` instead the pointer there for the
 /// jump at that tick, and no walk); the ticks come at the game's pace (30 a
 /// second) and the view is drawn as often as it can in between, or `fps` times a second
@@ -325,7 +326,11 @@ fn cmd_smooth(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _st: 
         Some(p) => Some(point(&p.replace('/', ","), cmd)?),
         None => None,
     };
-    let dir = if click.is_some() { 0 } else { num(first)? as u8 & 7 };
+    let use_id = match first.strip_prefix("use") {
+        Some(id) => Some(num(id)? as u16),
+        None => None,
+    };
+    let dir = if click.is_some() || use_id.is_some() { 0 } else { num(first)? as u8 & 7 };
     let (mut run, mut fps, mut jump_at) = (false, None, None);
     for p in parts {
         match p {
@@ -361,6 +366,10 @@ fn cmd_smooth(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _st: 
         }
         game.walk_to_pointer(x, y);
     }
+    if let Some(id) = use_id {
+        game.draw(surf, opts, false);
+        game.use_or_approach(id);
+    }
     // (then stand still for a while: the view comes to rest)
     for tick in 0..64u32 {
         if jump_at == Some(tick) {
@@ -368,7 +377,7 @@ fn cmd_smooth(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _st: 
             game.draw(surf, opts, false);
             println!("jump: {}", game.jump(click, w, h));
         }
-        game.step((tick < 44 && click.is_none()).then_some(MoveInput { dir, run }));
+        game.step((tick < 44 && click.is_none() && use_id.is_none()).then_some(MoveInput { dir, run }));
         let next = start + tick_time * (tick + 1);
         let mut sub = 0;
         match fps {

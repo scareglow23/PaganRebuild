@@ -362,6 +362,7 @@ impl Game {
             // over from where it was on the old map (if that is near), and
             // people would glide from their last steps over there
             self.view.cam_smooth = None;
+            self.view.cam_ride = None;
             self.view.cam_vel = (0.0, 0.0, 0.0);
             self.view.lerps.clear();
             self.ui.picked = None;

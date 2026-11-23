@@ -262,6 +262,10 @@ pub struct ViewState {
     /// The camera's target as of the last picture, and since when it has
     /// been there.
     pub(crate) cam_target: Option<((f32, f32, f32), std::time::Instant)>,
+    /// A camera ride of a script (`Camera::scrollTo`, as when a
+    /// conversation begins) as the view shows it: from where the view was,
+    /// to where it goes, since when, how long (seconds).
+    pub(crate) cam_ride: Option<CamRide>,
     /// When the program started: the blinking of the text cursor (name
     /// entry) is counted from it.
     pub(crate) blink_start: std::time::Instant,
@@ -296,6 +300,7 @@ impl ViewState {
             room_light: (0.0, 0),
             cam_vel: (0.0, 0.0, 0.0),
             cam_target: None,
+            cam_ride: None,
             blink_start: std::time::Instant::now(),
             origin: (0, 0),
             xf: crate::turnview::Xform { cam: (0, 0, 0), angle: 0.0, size: (640, 400) },
@@ -1552,6 +1557,10 @@ impl Game {
         let t = ((target.0 - quake.0) as f32, (target.1 - quake.1) as f32, target.2 as f32);
         let now = std::time::Instant::now();
         let far = |c: (f32, f32, f32)| (c.0 - t.0).abs().max((c.1 - t.1).abs()) > 1500.0;
+        if let Some(c) = self.camera_ride(t, now) {
+            let (x, y, z) = (c.0.round() as i32, c.1.round() as i32, c.2.round() as i32);
+            return (x + quake.0, y + quake.1, z);
+        }
         match self.view.cam_smooth {
             // The camera is pulled after its target like on a damped spring.
             // A walking figure covers a different distance with every step
@@ -1611,6 +1620,46 @@ impl Game {
         }
     }
 
+    /// A script's camera ride (`Camera::scrollTo`, as when a conversation
+    /// begins and the view goes over to the one spoken to): the game moves
+    /// the view there in even steps, one a tick, and the gliding camera,
+    /// pulled after them on its spring, set off slowly, sped up and stopped
+    /// short at the end; it jerked. Instead the view rides there smoothly
+    /// from where it was, setting off and coming to rest gently, worked out
+    /// for each picture, in the time the game gives the ride. Where the
+    /// view is in this picture; None: no ride (or it is over, or the view
+    /// is wanted elsewhere now).
+    fn camera_ride(&mut self, t: (f32, f32, f32), now: std::time::Instant) -> Option<(f32, f32, f32)> {
+        if !self.options.smooth_camera || self.ui.menu.is_some() {
+            self.view.cam_ride = None;
+            return None;
+        }
+        if let crate::effects::CameraMode::Scroll(_, to, _, total) = self.camera {
+            if self.view.cam_ride.is_none_or(|r| r.to != to) {
+                let from = self.view.cam_smooth.map_or(t, |c| c.0);
+                self.view.cam_ride = Some(CamRide { from, to, start: now, seconds: total as f32 / 30.0 });
+            }
+        }
+        let r = self.view.cam_ride?;
+        // over when it is there, or when the view is wanted somewhere else
+        // than where it goes (a fixed point or a figure there go on from it)
+        let k = now.duration_since(r.start).as_secs_f32() / r.seconds.max(0.01);
+        let scrolling = matches!(self.camera, crate::effects::CameraMode::Scroll(..));
+        let away = (t.0 - r.to.0 as f32).abs().max((t.1 - r.to.1 as f32).abs()) > 8.0;
+        if k >= 1.0 || (!scrolling && away) {
+            self.view.cam_ride = None;
+            return None;
+        }
+        let e = k * k * (3.0 - 2.0 * k);
+        let to = (r.to.0 as f32, r.to.1 as f32, r.to.2 as f32);
+        let c = (r.from.0 + (to.0 - r.from.0) * e, r.from.1 + (to.1 - r.from.1) * e, r.from.2 + (to.2 - r.from.2) * e);
+        // (the gliding camera goes on from here when the ride is over)
+        self.view.cam_smooth = Some((c, now));
+        self.view.cam_vel = (0.0, 0.0, 0.0);
+        self.view.cam_pixels = (0, 0);
+        Some(c)
+    }
+
     /// The view follows the Avatar while a scene moves him (stasis).
     fn scene_follows_avatar(&self) -> bool {
         self.stasis && matches!(self.camera, crate::effects::CameraMode::Follow(AVATAR))
@@ -1622,6 +1671,7 @@ impl Game {
         let t = self.camera_position();
         self.options.smooth_camera
             && (!self.view.lerps.is_empty()
+                || self.view.cam_ride.is_some()
                 || self.view.cam_smooth.is_some_and(|(c, _)| (c.0 - t.0 as f32).abs() + (c.1 - t.1 as f32).abs() + (c.2 - t.2 as f32).abs() >= 1.0)
                 || self.view.cam_vel != (0.0, 0.0, 0.0))
     }
@@ -2018,6 +2068,15 @@ fn pixel_steady(c: (f32, f32, f32), t: (i32, i32, i32), pixels: &mut (i32, i32))
     let b = (t.0 + t.1) + 8 * down;
     // (a + b is even: x and y come out whole)
     ((a + b) / 2, (b - a) / 2, (c.2 - tz).round() as i32 + t.2)
+}
+
+/// A camera ride of a script, as the view shows it (`Game::camera_ride`).
+#[derive(Clone, Copy)]
+pub(crate) struct CamRide {
+    from: (f32, f32, f32),
+    to: (i32, i32, i32),
+    start: std::time::Instant,
+    seconds: f32,
 }
 
 /// The top left of the view on the screen, around the camera point `cam`
