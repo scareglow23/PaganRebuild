@@ -280,10 +280,28 @@ impl Game {
     /// open: out of the backpack into the container opened last, from
     /// anywhere else into the backpack, with the checks of dragging it there
     /// (weight, room; taking what belongs to others counts as stealing).
-    /// The pick stays on it. False if nothing moved (the player is told why
-    /// where there is a reason).
+    /// The pick stays in the window it came from, on the thing now at its
+    /// place or the next one after it (the last one at the end), so a few
+    /// presses carry thing after thing; it goes along only when the window
+    /// is left empty. False if nothing moved (the player is told why where
+    /// there is a reason).
     pub fn carry_picked(&mut self) -> bool {
         let Some(id) = self.window_picked() else { return false };
+        let owner = self.map().get(id).map_or(0, |it| it.parent);
+        let place = self.window_cells(owner).into_iter().find(|c| c.2 == id).map(|c| (c.0, c.1));
+        if !self.carry_thing(id) {
+            return false;
+        }
+        let cells = self.window_cells(owner);
+        let next = place.and_then(|p| cells.iter().find(|c| (c.0, c.1) >= p).or(cells.last()));
+        if let Some(&(_, _, next)) = next {
+            self.set_window_pick(next);
+        }
+        true
+    }
+
+    /// Moves thing `id` (see `carry_picked`).
+    fn carry_thing(&mut self, id: u16) -> bool {
         let Some(pack) = self.backpack() else { return false };
         let parent = self.map().get(id).map_or(0, |it| it.parent);
         if parent != pack {

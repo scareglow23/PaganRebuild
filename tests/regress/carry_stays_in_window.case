@@ -1,0 +1,10 @@
+# The pad, moving things between the barrel by the hut (map 4) and the backpack (better inventory): after each move the pick stays in the window the thing came from, on the thing now at its place or the next one, the last one at the end, so thing after thing goes over; only when the window is left empty it goes along
+args: --map 4 --pos 10624,10060,48
+do: option:better_inventory,on;pack:418;pack:420;pack:816;pack:814;pack:843;pack:793,1;pack:793,3
+do: t5;operate:36462;t10;inv;t5;pickwin:-1;pickrow:-1;pickwin:1;carry;carry;pickwin:-1;pickwin:-1;carry;carry
+expect: pickwin: id 36735 shape  420
+expect: carry: true, now id 36736 shape  816 frame   0 at 65539,0,0 flags 0008 q 0 npc 0 map 4 parent 36733
+expect: carry: true, now id 36737 shape  814 frame   0 at 65540,0,0 flags 0008 q 0 npc 0 map 4 parent 36733
+expect: pickwin: id 36740 shape  793
+expect: carry: true, now id 36739 shape  793 frame   1 at 65542,0,0 flags 0008 q 0 npc 0 map 4 parent 36733
+expect: carry: true, now id 36738 shape  843 frame   0 at 65541,0,0 flags 0008 q 0 npc 0 map 4 parent 36733
