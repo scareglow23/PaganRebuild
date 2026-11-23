@@ -368,6 +368,14 @@ impl Game {
     }
 }
 
+/// A pixel of lava that glows (red, orange, yellow, almost white), not one
+/// of the grey stone slabs drawn into the edge of a field of lava (grey,
+/// blue-grey, olive grey: as much red as green).
+fn glows(px: u32) -> bool {
+    let (r, g) = ((px >> 16) & 0xFF, (px >> 8) & 0xFF);
+    r >= 240 || r > g + 15
+}
+
 fn is_lava(shape: u32) -> bool {
     matches!(shape, 111 | 409 | 479 | 487 | 413 | 486 | 528 | 603)
 }
@@ -567,6 +575,7 @@ pub fn apply(surf: &mut Surface, lights: &[Light], look: Look, ids: &[u32], item
         Seen {
             id,
             own_light: thing.is_some_and(|it| light_of(it.shape, it.frame).is_some()),
+            lava: thing.is_some_and(|it| is_lava(it.shape)),
             dim,
             unlit,
             lamp,
@@ -605,8 +614,12 @@ pub fn apply(surf: &mut Surface, lights: &[Light], look: Look, ids: &[u32], item
                 if id != seen.id {
                     seen = seen_of(id);
                 }
-                // what gives light keeps its own colours
-                if seen.own_light {
+                // what gives light keeps its own colours (of lava only what
+                // glows: the broken stone slabs drawn into the edge pieces of
+                // a field of lava are lit as the floor beside them; kept as
+                // they are, they stood cold and grey against the floor warm
+                // in the glow, with hard edges)
+                if seen.own_light && (!seen.lava || glows(*px)) {
                     continue;
                 }
                 let pixel_z = seen.z_at(x, y);
@@ -690,6 +703,8 @@ struct Seen<'a> {
     id: u32,
     /// It gives light: it keeps its own colours.
     own_light: bool,
+    /// It is lava (see `glows`).
+    lava: bool,
     /// The general light on it (by colour and brightness), the colours
     /// where no light reaches (`unlit_table`), the strength of the lights.
     dim: &'a [[f32; 256]; 3],
