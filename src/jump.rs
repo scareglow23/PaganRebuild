@@ -288,7 +288,21 @@ impl Game {
         }
 
         // 4. the pointer is on nothing he could land on: he shakes his head
-        if pointer.is_some() {
+        if let Some((x, y)) = pointer {
+            // on a thing right beside him (a door, a wall): up on the spot,
+            // as with the jump key
+            let beside = self.pick_world(x, y, AVATAR).and_then(|id| self.map().get(id).copied()).is_some_and(|it| {
+                let here = WorldBox::of(&av, &info);
+                self.data.infos.get(it.shape as usize).is_some_and(|si| {
+                    let b = WorldBox::of(&it, si);
+                    let gap_x = (b.x - b.xd - here.x).max(here.x - here.xd - b.x);
+                    let gap_y = (b.y - b.yd - here.y).max(here.y - here.yd - b.y);
+                    gap_x.max(gap_y) <= 16
+                })
+            });
+            if beside && self.jump_up_fits(&av) && self.animate(AVATAR, anim::JUMP_UP) {
+                return "up on the spot";
+            }
             self.animate(AVATAR, anim::SHAKE_HEAD);
             return "no (shakes his head)";
         }
@@ -300,9 +314,22 @@ impl Game {
             actors.get(&AVATAR).is_some_and(|m| m.air_clear(anim::JUMP, &av, &maps[cur_map], infos, anims))
         };
         if !room {
+            // no room ahead, but above him: up on the spot, as the original
+            // jumps standing still (a door, a wall right in front; this is
+            // how a hidden teleporter above the door in the catacombs is
+            // reached)
+            if self.jump_up_fits(&av) && self.animate(AVATAR, anim::JUMP_UP) {
+                return "up on the spot";
+            }
             self.animate(AVATAR, anim::SHAKE_HEAD);
             return "no room (shakes his head)";
         }
         if self.animate(AVATAR, anim::JUMP) { "ahead" } else { "not possible" }
+    }
+
+    /// Is there room above the Avatar for jumping up on the spot?
+    fn jump_up_fits(&mut self, av: &crate::map::Item) -> bool {
+        let Game { data: crate::gamedata::GameData { infos, anims, .. }, maps, cur_map, actors, .. } = &mut *self;
+        actors.get(&AVATAR).is_some_and(|m| m.air_clear(anim::JUMP_UP, av, &maps[cur_map], infos, anims))
     }
 }

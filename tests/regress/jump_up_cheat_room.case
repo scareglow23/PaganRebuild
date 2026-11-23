@@ -1,0 +1,5 @@
+# Catacombs, the open door with the hidden teleporter above it: no room for a jump ahead there, so the jump goes up on the spot, as in the original; on the way up the Avatar touches the teleporter and comes to the hidden room (also with the pointer on the door)
+args: --map 51 --pos 25450,2150,0
+do: t5;jump;t40;where:1
+expect: jump: up on the spot
+expect: where 1: 25599,11199,
