@@ -37,12 +37,12 @@ impl Game {
     }
 
     /// Picks the next thing in the open windows (`step` 1, to the right)
-    /// or the one before (-1). In the backpack's slots the pick stays in
-    /// its row, the pages turning along; at the end of the row it goes
-    /// over to the window lying on that side (into its row nearest the
-    /// height it left at), else round to the other end of the same row.
-    /// Elsewhere it goes through the things row by row and over to the
-    /// window beside at the end. The first press picks the first (or
+    /// or the one before (-1). It stays in its window (the window buttons
+    /// go over to another). In the backpack's slots the pick stays in its
+    /// row, the pages turning along; past the row's start it goes round to
+    /// the row's end (the last page), past its end into the next row from
+    /// its start (the first page). Elsewhere it goes through the things
+    /// row by row, round at the end. The first press picks the first (or
     /// last) thing of the window on the left (right), in the backpack on
     /// the page shown. None if the windows are empty.
     pub fn pick_in_window(&mut self, step: i32) -> Option<u16> {
@@ -151,37 +151,13 @@ impl Game {
         if i >= 0 && i < line.len() as i32 {
             return Some(line[i as usize]);
         }
-        if let Some(next) = self.window_beside(owner, id, step) {
-            return Some(next);
+        // past the backpack's row end: the next row with something in it
+        // (after the last the first), from its start
+        if grid && step > 0 {
+            let next = cells.iter().find(|c| c.0 > row).or(cells.first());
+            return next.map(|c| c.2);
         }
         Some(line[if step < 0 { line.len() - 1 } else { 0 }])
-    }
-
-    /// Over into the window beside window `owner` on the side of `step`
-    /// (the nearest one there with something shown): the thing at its
-    /// near end of the row nearest the height of thing `from`.
-    fn window_beside(&mut self, owner: u16, from: u16, step: i32) -> Option<u16> {
-        let windows = self.pick_windows();
-        let &(x, _) = windows.iter().find(|w| w.1 == owner)?;
-        let gi = self.ui.gumps.iter().position(|g| g.owner == owner)?;
-        let y = self.pick_rect(gi, from).map(|r| (r.1 + r.3) / 2)?;
-        let mut beside: Vec<(i32, u16)> = windows.into_iter().filter(|w| w.1 != owner && (w.0 - x) * step > 0).collect();
-        beside.sort_by_key(|w| (w.0 - x).abs());
-        for (_, other) in beside {
-            let Some(gi) = self.ui.gumps.iter().position(|g| g.owner == other) else { continue };
-            let cells: Vec<(i32, i32, u16, i32)> = self
-                .cells_shown(other)
-                .into_iter()
-                .filter_map(|(r, c, t)| self.pick_rect(gi, t).map(|rect| (r, c, t, (rect.1 + rect.3) / 2)))
-                .collect();
-            let Some(row) = cells.iter().min_by_key(|c| (c.3 - y).abs()).map(|c| c.0) else { continue };
-            let in_row = cells.iter().filter(|c| c.0 == row);
-            let at = if step < 0 { in_row.max_by_key(|c| c.1) } else { in_row.min_by_key(|c| c.1) };
-            if let Some(c) = at {
-                return Some(c.2);
-            }
-        }
-        None
     }
 
     /// The open windows that hold things (not the Avatar's own), with the

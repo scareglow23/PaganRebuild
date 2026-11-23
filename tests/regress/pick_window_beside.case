@@ -1,10 +1,10 @@
-# The pad with the barrel by the hut (map 4, its window on the left) and the backpack (better inventory) open: at the start of the backpack's row the pick goes left over into the barrel, at the row nearest the height it left at (the tableware), and on its last thing right over into the backpack's top row
+# The pad with the barrel by the hut (map 4, its window on the left) and the backpack (better inventory) open: left and right stay in their window (the window buttons go over): past the start of the backpack's row round to its end, past its end into the next row; in the barrel round from its last thing to its first
 args: --map 4 --pos 10624,10060,48
 do: option:better_inventory,on;pack:418;pack:420;pack:816;pack:814;pack:843;pack:793,1;pack:793,3
-do: t5;operate:36462;t10;inv;t5;pickwin:-1;pickrow:-1;pickwin:-1;pickwin:1;pickwin:1
-expect: pickwin: id 36740
+do: t5;operate:36462;t10;inv;t5;pickwin:-1;pickrow:-1;pickwin:-1;pickwin:1;pickother:-1;pickwin:-1;pickwin:-1;pickwin:-1;pickwin:-1;pickwin:-1
 expect: pickrow: true id 36734
-expect: pickwin: id 36466 shape  181
-expect: pickwin: id 36464 shape  830
-expect: pickwin: id 36734 shape  418
-reject: pickwin: id 36463
+expect: pickwin: id 36738 shape  843
+expect: pickwin: id 36739 shape  793
+expect: pickother: id 36463 shape  579
+expect: pickwin: id 36467 shape  471
+expect: pickwin: id 36463 shape  579
