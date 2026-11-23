@@ -1,12 +1,12 @@
-# The pad in the backpack (better inventory, two pages): left and right keep the pick in its row over the pages; past the row's start round to its end (the last page), past its end into the next row from its start (the first page); reopened on page 2 it starts there; with the page turned by hand it goes on in its row on the page shown
+# The pad in the backpack (better inventory, two pages): left and right keep the pick in its row over the pages; past the row's end into the next row from its start (the first page), past its start into the row above from its end (the last page), round at the top and bottom; reopened on page 2 it starts there; with the page turned by hand it goes on in its row on the page shown
 args: --map 4 --pos 10624,10060,48
 do: option:better_inventory,on;pack:418;pack:420;pack:816;pack:814;pack:843;pack:793,1;pack:793,3;pack:793,4;pack:798,3;pack:442;pack:534;pack:613;pack:817;pack:842;pack:798,0;pack:798,1;pack:798,2;pack:798,4;pack:798,5;pack:798,6;pack:798,7;pack:793,0;pack:793,2;pack:793,5;pack:793,6;pack:793,7;pack:419;pack:421;pack:422;pack:423;pack:424
-do: inv;t5;pickwin:1;pickwin:-1;pickwin:1;pickwin:-1;inv;t2;inv;t5;pickwin:1;gridturn:-1;pickwin:1;pickrow:1
+do: inv;t5;pickwin:1;pickwin:-1;pickwin:1;pickrow:1;pickwin:-1;pickwin:-1;pickwin:1;pickwin:-1;inv;t2;inv;t5;pickwin:1;gridturn:-1;pickwin:1;pickrow:1
 expect: pickwin: id 36734
-expect: pickwin: id 36757
+expect: pickwin: id 36751 shape  798
 expect: pickwin: id 36739 shape  793 frame   1
 expect: name Some("glowing Heart of Earth") page 0
-expect: pickwin: id 36763 shape  423
+expect: pickwin: id 36757
 expect: name Some("rock") page 1
 expect: gridturn: page 0
 expect: pickrow: true id 36740

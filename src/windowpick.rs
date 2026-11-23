@@ -39,9 +39,9 @@ impl Game {
     /// Picks the next thing in the open windows (`step` 1, to the right)
     /// or the one before (-1). It stays in its window (the window buttons
     /// go over to another). In the backpack's slots the pick stays in its
-    /// row, the pages turning along; past the row's start it goes round to
-    /// the row's end (the last page), past its end into the next row from
-    /// its start (the first page). Elsewhere it goes through the things
+    /// row, the pages turning along; past the row's end it goes into the
+    /// next row from its start (the first page), past its start into the
+    /// row above from its end (the last page), round at the top and bottom. Elsewhere it goes through the things
     /// row by row, round at the end. The first press picks the first (or
     /// last) thing of the window on the left (right), in the backpack on
     /// the page shown. None if the windows are empty.
@@ -152,9 +152,10 @@ impl Game {
             return Some(line[i as usize]);
         }
         // past the backpack's row end: the next row with something in it
-        // (after the last the first), from its start
-        if grid && step > 0 {
-            let next = cells.iter().find(|c| c.0 > row).or(cells.first());
+        // (after the last the first), from its start; past its start: the
+        // row before (before the first the last), from its end
+        if grid {
+            let next = if step > 0 { cells.iter().find(|c| c.0 > row).or(cells.first()) } else { cells.iter().rev().find(|c| c.0 < row).or(cells.last()) };
             return next.map(|c| c.2);
         }
         Some(line[if step < 0 { line.len() - 1 } else { 0 }])
