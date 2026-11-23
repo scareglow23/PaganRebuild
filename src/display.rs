@@ -28,11 +28,15 @@ pub struct Upscaled {
     sharp: Vec<bool>,
     /// A picture is ready to be handed over.
     ready: bool,
+    /// Fine scrolling: the world alone and how far the camera is beyond it
+    /// (see `ViewState::fine`); empty: none.
+    world: Vec<u32>,
+    shift: (f32, f32),
 }
 
 impl Upscaled {
     pub fn new() -> Upscaled {
-        Upscaled { filter: crate::menu::PIXELS_SHARP, sharp: Vec::new(), ready: false }
+        Upscaled { filter: crate::menu::PIXELS_SHARP, sharp: Vec::new(), ready: false, world: Vec::new(), shift: (0.0, 0.0) }
     }
 }
 
@@ -57,6 +61,12 @@ pub fn present(window: &mut Window, surf: &Surface, shown: &mut Surface, up: &mu
     if up.filter == crate::menu::PIXELS_XBR && game.view.sharp.len() == src.0 * src.1 {
         up.sharp.extend_from_slice(&game.view.sharp);
     }
+    up.world.clear();
+    up.shift = (0.0, 0.0);
+    if let Some(shift) = game.view.fine.filter(|_| game.view.world_layer.len() == surf.pixels.len()) {
+        up.world.extend_from_slice(&game.view.world_layer);
+        up.shift = shift;
+    }
     up.ready = true;
     Ok(())
 }
@@ -74,7 +84,8 @@ pub fn show(window: &mut Window, shown: &Surface, up: &mut Upscaled, times: u32)
             crate::menu::PIXELS_CRT => Look::Crt,
             _ => Look::Plain,
         };
-        window.update_with_buffer(&shown.pixels, shown.width as usize, shown.height as usize, look, times)?;
+        let world = (!up.world.is_empty()).then_some((&up.world[..], up.shift));
+        window.update_with_buffer(&shown.pixels, shown.width as usize, shown.height as usize, look, world, times)?;
     } else {
         window.update();
     }

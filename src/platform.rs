@@ -245,8 +245,8 @@ impl Gpu {
 
     /// Takes the picture (0x00RRGGBB per pixel, as the game draws), to be
     /// shown with `look`.
-    fn upload(&mut self, pixels: &[u32], w: u32, h: u32, look: crate::gpuscale::Look) {
-        self.scaler.set_picture(&self.device, &self.queue, pixels, w, h, look);
+    fn upload(&mut self, pixels: &[u32], w: u32, h: u32, look: crate::gpuscale::Look, world: Option<(&[u32], (f32, f32))>) {
+        self.scaler.set_picture(&self.device, &self.queue, pixels, w, h, look, world);
     }
 
     /// Shows the picture in the part `rect` (x, y, width, height) of the
@@ -828,7 +828,8 @@ impl Window {
 
     /// Shows a picture of `w` x `h` pixels, stretched over the whole
     /// window, with `look` (sharp, smoothed or as on a tube monitor); `times`: for how many screen refreshes (1 or more).
-    pub fn update_with_buffer(&mut self, pixels: &[u32], w: usize, h: usize, look: crate::gpuscale::Look, times: u32) -> Result<(), String> {
+    /// `world`: for fine scrolling (see `gpuscale::Scaler::set_picture`).
+    pub fn update_with_buffer(&mut self, pixels: &[u32], w: usize, h: usize, look: crate::gpuscale::Look, world: Option<(&[u32], (f32, f32))>, times: u32) -> Result<(), String> {
         if pixels.len() < w * h {
             return Err(format!("picture of {w}x{h} with only {} pixels", pixels.len()));
         }
@@ -841,7 +842,7 @@ impl Window {
                         desktop_refresh();
                     }
                     if i == 0 {
-                        g.upload(pixels, w as u32, h as u32, look);
+                        g.upload(pixels, w as u32, h as u32, look, world);
                     }
                     if !g.draw(rect) {
                         std::thread::sleep(Duration::from_millis(8));

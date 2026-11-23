@@ -266,6 +266,14 @@ pub struct ViewState {
     /// conversation begins) as the view shows it: from where the view was,
     /// to where it goes, since when, how long (seconds).
     pub(crate) cam_ride: Option<CamRide>,
+    /// Fine scrolling (on a camera ride): where the camera is exactly,
+    /// unrounded; then how far (picture pixels across and down) it is
+    /// beyond the picture drawn, and the world as drawn before the windows
+    /// went over it: the graphics card shows the world shifted by that much
+    /// (in the window's finer pixels).
+    pub(crate) cam_exact: Option<(f32, f32, f32)>,
+    pub(crate) fine: Option<(f32, f32)>,
+    pub(crate) world_layer: Vec<u32>,
     /// When the program started: the blinking of the text cursor (name
     /// entry) is counted from it.
     pub(crate) blink_start: std::time::Instant,
@@ -301,6 +309,9 @@ impl ViewState {
             cam_vel: (0.0, 0.0, 0.0),
             cam_target: None,
             cam_ride: None,
+            cam_exact: None,
+            fine: None,
+            world_layer: Vec::new(),
             blink_start: std::time::Instant::now(),
             origin: (0, 0),
             xf: crate::turnview::Xform { cam: (0, 0, 0), angle: 0.0, size: (640, 400) },
@@ -1098,6 +1109,7 @@ impl Game {
     /// Draws the view centred on the Avatar.
     pub fn draw(&mut self, surf: &mut Surface, opts: &mut ViewOptions, roofs_always: bool) {
         self.dress_avatar();
+        self.view.fine = None;
         if self.title_covers_view() {
             // no world behind a movie, or before the game has begun
             surf.pixels.fill(0);
@@ -1251,6 +1263,16 @@ impl Game {
         }
         if self.screen.inverted {
             surf.flip_rows();
+        }
+        // fine scrolling: the world as drawn, and how far beyond it the
+        // camera is exactly (not with the view turned or upside down)
+        if let Some(c) = self.view.cam_exact.filter(|_| angle == 0.0 && !self.screen.inverted) {
+            let across = (c.0 - c.1) / 4.0 - crate::sorter::figure_sx(cx, cy) as f32;
+            let down = (c.0 + c.1) / 8.0 - c.2 - crate::sorter::figure_sy(cx, cy, cz) as f32;
+            if across != 0.0 || down != 0.0 {
+                self.view.world_layer.clone_from(&surf.pixels);
+                self.view.fine = Some((across, down));
+            }
         }
         self.ui.minimap_area = None;
         if self.options.minimap {
@@ -1557,9 +1579,11 @@ impl Game {
         let t = ((target.0 - quake.0) as f32, (target.1 - quake.1) as f32, target.2 as f32);
         let now = std::time::Instant::now();
         let far = |c: (f32, f32, f32)| (c.0 - t.0).abs().max((c.1 - t.1).abs()) > 1500.0;
+        self.view.cam_exact = None;
         if let Some(c) = self.camera_ride(t, now) {
-            let (x, y, z) = (c.0.round() as i32, c.1.round() as i32, c.2.round() as i32);
-            return (x + quake.0, y + quake.1, z);
+            let c = (c.0 + quake.0 as f32, c.1 + quake.1 as f32, c.2);
+            self.view.cam_exact = Some(c);
+            return (c.0.round() as i32, c.1.round() as i32, c.2.round() as i32);
         }
         match self.view.cam_smooth {
             // The camera is pulled after its target like on a damped spring.

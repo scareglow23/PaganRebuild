@@ -233,7 +233,8 @@ struct Out { @builtin(position) pos: vec4<f32> };
 // per window column (row): first pixel, how many, and up to six shares
 @group(0) @binding(1) var tx: texture_2d<u32>;
 @group(0) @binding(2) var ty: texture_2d<u32>;
-// where the picture's top left corner is in the window
+// where the picture's top left corner is in the window; zw: how many
+// window pixels the world is shifted by (fine scrolling, see `Scaler::shift`)
 @group(0) @binding(3) var<uniform> at: vec4<i32>;
 
 FETCH
@@ -251,7 +252,18 @@ fn share(a: vec4<u32>, b: vec4<u32>, k: u32) -> u32 {
 
 @fragment fn fs(o: Out) -> @location(0) vec4<f32> {
     let n = vec2<i32>(i32(textureDimensions(tx).x), i32(textureDimensions(ty).x));
-    let w = clamp(vec2<i32>(floor(o.pos.xy)) - at.xy, vec2<i32>(0), n - 1);
+    var w = clamp(vec2<i32>(floor(o.pos.xy)) - at.xy, vec2<i32>(0), n - 1);
+    var from_world = false;
+    if (at.z != 0 || at.w != 0) {
+        // fine scrolling: where the picture shows the world (nothing drawn
+        // over it), the world a few window pixels further on
+        let sx = i32(textureLoad(tx, vec2<i32>(w.x, 0), 0).x);
+        let sy = i32(textureLoad(ty, vec2<i32>(w.y, 0), 0).x);
+        if (all(fetch(sx, sy) == fetch_world(sx, sy))) {
+            w = clamp(w + at.zw, vec2<i32>(0), n - 1);
+            from_world = true;
+        }
+    }
     let x0 = textureLoad(tx, vec2<i32>(w.x, 0), 0);
     let x1 = textureLoad(tx, vec2<i32>(w.x, 1), 0);
     let y0 = textureLoad(ty, vec2<i32>(w.y, 0), 0);
@@ -263,7 +275,9 @@ fn share(a: vec4<u32>, b: vec4<u32>, k: u32) -> u32 {
         let row = i32(y0.x + k);
         var line = vec3<f32>(0.0);
         for (var m = 0u; m < x0.y; m++) {
-            line += vec3<f32>(fetch(i32(x0.x + m), row)) * f32(share(x0, x1, m));
+            var c = vec3<u32>(0u);
+            if (from_world) { c = fetch_world(i32(x0.x + m), row); } else { c = fetch(i32(x0.x + m), row); }
+            line += vec3<f32>(c) * f32(share(x0, x1, m));
         }
         acc += floor((line + 128.0) / 256.0) * f32(share(y0, y1, k));
     }
@@ -273,8 +287,16 @@ fn share(a: vec4<u32>, b: vec4<u32>, k: u32) -> u32 {
 
 /// The picture as drawn, for the stretch.
 const FETCH_PLAIN: &str = r#"
+// the world alone, before the windows were drawn over it (fine scrolling)
+@group(0) @binding(4) var world: texture_2d<f32>;
+
 fn fetch(x: i32, y: i32) -> vec3<u32> {
     let v = textureLoad(pic, vec2<i32>(x, y), 0);
+    return vec3<u32>(round(clamp(v.rgb, vec3<f32>(0.0), vec3<f32>(1.0)) * 255.0));
+}
+
+fn fetch_world(x: i32, y: i32) -> vec3<u32> {
+    let v = textureLoad(world, vec2<i32>(x, y), 0);
     return vec3<u32>(round(clamp(v.rgb, vec3<f32>(0.0), vec3<f32>(1.0)) * 255.0));
 }
 "#;
@@ -291,6 +313,11 @@ fn fetch(x: i32, y: i32) -> vec3<u32> {
         default: {}
     }
     return vec3<u32>((c >> 16u) & 255u, (c >> 8u) & 255u, c & 255u);
+}
+
+// (no fine scrolling with smoothing: never asked for)
+fn fetch_world(x: i32, y: i32) -> vec3<u32> {
+    return fetch(x, y);
 }
 "#;
 
@@ -477,6 +504,8 @@ fn texture_entry(binding: u32, sample_type: wgpu::TextureSampleType) -> wgpu::Bi
 struct Frame {
     /// The picture as drawn, and the pixels to leave sharp when smoothing.
     picture: Tex,
+    /// The world alone, for fine scrolling (see `Scaler::shift`).
+    world: Tex,
     sharp: Tex,
     /// The mask of pixels left sharp is empty on the graphics card (it
     /// mostly is: it is only written when something is marked).
@@ -491,6 +520,7 @@ impl Frame {
         let usage = wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST;
         Frame {
             picture: Tex::new(device, size, wgpu::TextureFormat::Bgra8Unorm, usage),
+            world: Tex::new(device, size, wgpu::TextureFormat::Bgra8Unorm, usage),
             sharp: Tex::new(device, size, wgpu::TextureFormat::R8Unorm, usage),
             sharp_clear: false,
             smoothing: None,
@@ -559,6 +589,11 @@ pub struct Scaler {
     taps: Option<((u32, u32, u32, u32), Tex, Tex)>,
     /// The stretch's inputs, for (smoothed, picture size, window size).
     stretch_group: Option<((bool, u32, u32, u32, u32), wgpu::BindGroup)>,
+    /// Fine scrolling: the camera is this far (in picture pixels, across
+    /// and down) beyond where the picture was drawn from; the world (where
+    /// no window is drawn over it) is shown shifted by as many window
+    /// pixels. Only without smoothing and tube look.
+    shift: (f32, f32),
 }
 
 impl Scaler {
@@ -571,9 +606,8 @@ impl Scaler {
             let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some("pagan xbr"), entries: &entries });
             (pipeline(device, &format!("{XBR_PRELUDE}{source}"), &layout, out), layout)
         };
-        let stretch_layout = |pic| device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("pagan stretch"),
-            entries: &[
+        let stretch_layout = |pic, world: bool| {
+            let mut entries = vec![
                 texture_entry(0, pic),
                 texture_entry(1, wgpu::TextureSampleType::Uint),
                 texture_entry(2, wgpu::TextureSampleType::Uint),
@@ -583,10 +617,14 @@ impl Scaler {
                     ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None },
                     count: None,
                 },
-            ],
-        });
+            ];
+            if world {
+                entries.push(texture_entry(4, float));
+            }
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some("pagan stretch"), entries: &entries })
+        };
         let stretch = |pic, ty: &str, fetch: &str| {
-            let layout = stretch_layout(pic);
+            let layout = stretch_layout(pic, fetch == FETCH_PLAIN);
             (pipeline(device, &STRETCH.replace("PIC", ty).replace("FETCH", fetch), &layout, format), layout)
         };
         let crt_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -627,12 +665,16 @@ impl Scaler {
             timing: None,
             taps: None,
             stretch_group: None,
+            shift: (0.0, 0.0),
         }
     }
 
     /// Takes the next picture (0x00RRGGBB per pixel, `w` x `h`), to be
     /// shown with `look`.
-    pub fn set_picture(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, pixels: &[u32], w: u32, h: u32, look: Look) {
+    /// `world`: for fine scrolling, the world alone (before the windows
+    /// were drawn over it) and how far beyond it the camera is (see
+    /// `shift`).
+    pub fn set_picture(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, pixels: &[u32], w: u32, h: u32, look: Look, world: Option<(&[u32], (f32, f32))>) {
         if self.frame.as_ref().map(|f| f.picture.size) != Some((w, h)) {
             self.frame = Some(Frame::new(device, (w, h)));
             self.stretch_group = None;
@@ -640,6 +682,11 @@ impl Scaler {
         }
         let Some(frame) = &mut self.frame else { return };
         frame.picture.write(queue, as_bytes(pixels), 4);
+        self.shift = (0.0, 0.0);
+        if let Some((world, shift)) = world.filter(|(px, _)| px.len() >= (w * h) as usize && matches!(look, Look::Plain)) {
+            frame.world.write(queue, as_bytes(world), 4);
+            self.shift = shift;
+        }
         self.smoothed = matches!(look, Look::Xbr(_));
         self.crt_on = matches!(look, Look::Crt);
         let Look::Xbr(mask) = look else { return };
@@ -724,21 +771,24 @@ impl Scaler {
         }
         let gkey = (self.smoothed, sw, sh, w, h);
         if self.stretch_group.as_ref().map(|g| g.0) != Some(gkey) {
-            let (Some((input, _)), Some((_, tx, ty))) = (self.input(), &self.taps) else { return false };
-            let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("pagan stretch"),
-                layout: &self.stretch[self.smoothed as usize].1,
-                entries: &[
-                    wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&input.view()) },
-                    wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&tx.view()) },
-                    wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::TextureView(&ty.view()) },
-                    wgpu::BindGroupEntry { binding: 3, resource: self.corner.as_entire_binding() },
-                ],
-            });
+            let (Some((input, _)), Some((_, tx, ty)), Some(frame)) = (self.input(), &self.taps, &self.frame) else { return false };
+            let (input, tx, ty, world) = (input.view(), tx.view(), ty.view(), frame.world.view());
+            let mut entries = vec![
+                wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&input) },
+                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&tx) },
+                wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::TextureView(&ty) },
+                wgpu::BindGroupEntry { binding: 3, resource: self.corner.as_entire_binding() },
+            ];
+            if !self.smoothed {
+                entries.push(wgpu::BindGroupEntry { binding: 4, resource: wgpu::BindingResource::TextureView(&world) });
+            }
+            let group = device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("pagan stretch"), layout: &self.stretch[self.smoothed as usize].1, entries: &entries });
             self.stretch_group = Some((gkey, group));
         }
         let Some((_, group)) = &self.stretch_group else { return false };
-        queue.write_buffer(&self.corner, 0, as_bytes(&[x, y, 0, 0]));
+        // (fine scrolling: the shift in whole window pixels)
+        let (dx, dy) = if self.smoothed { (0, 0) } else { ((self.shift.0 * w as f32 / sw as f32).round() as i32, (self.shift.1 * h as f32 / sh as f32).round() as i32) };
+        queue.write_buffer(&self.corner, 0, as_bytes(&[x, y, dx as u32, dy as u32]));
         pass.set_viewport(x as f32, y as f32, w as f32, h as f32, 0.0, 1.0);
         pass.set_pipeline(&self.stretch[self.smoothed as usize].0);
         pass.set_bind_group(0, group, &[]);
@@ -769,7 +819,7 @@ pub fn offscreen(pixels: &[u32], w: u32, h: u32, look: Look, dst: (u32, u32)) ->
     .map_err(|e| format!("no device: {e}"))?;
     let format = wgpu::TextureFormat::Bgra8Unorm;
     let mut scaler = Scaler::new(&device, format);
-    scaler.set_picture(&device, &queue, pixels, w, h, look);
+    scaler.set_picture(&device, &queue, pixels, w, h, look, None);
     let target = Tex::new(&device, dst, format, wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC);
     // how long the graphics card takes (its own time stamps, if it has
     // them): the smoothing and the stretch, 50 times
@@ -785,7 +835,7 @@ pub fn offscreen(pixels: &[u32], w: u32, h: u32, look: Look, dst: (u32, u32)) ->
     let t = std::time::Instant::now();
     for run in 0..RUNS {
         scaler.timing = queries.clone().map(|q| (q, per * run));
-        scaler.set_picture(&device, &queue, pixels, w, h, look);
+        scaler.set_picture(&device, &queue, pixels, w, h, look, None);
         let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("pagan check") });
         {
             let view = target.view();
