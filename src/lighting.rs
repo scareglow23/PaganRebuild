@@ -240,6 +240,13 @@ fn light_of(shape: u32, frame: u32) -> Option<(f32, [f32; 3], bool)> {
         111 | 409 | 479 | 487 => (90.0, LAVA, false),
         413 | 486 | 528 => (90.0, LAVA, false),
         603 => (60.0, LAVA, true),
+        // floor plates broken open over lava: big holes, a middling one,
+        // thin cracks (it is the lava of the hole that glows)
+        478 => match frame {
+            0..=3 | 5..=7 => (90.0, LAVA, false),
+            4 | 28 => (70.0, LAVA.map(|c| c * 0.6), false),
+            _ => (50.0, LAVA.map(|c| c * 0.35), false),
+        },
         _ => return None,
     })
 }
@@ -377,7 +384,7 @@ fn glows(px: u32) -> bool {
 }
 
 fn is_lava(shape: u32) -> bool {
-    matches!(shape, 111 | 409 | 479 | 487 | 413 | 486 | 528 | 603)
+    matches!(shape, 111 | 409 | 478 | 479 | 487 | 413 | 486 | 528 | 603)
 }
 
 /// The lights are added up in a coarse grid, one for every height of light
@@ -736,7 +743,11 @@ impl Seen<'_> {
     /// slopes of a roof come down lower than a candle in the house stands).
     fn share(&self, f: &Field, pixel_z: Option<i32>) -> Option<f32> {
         let Some((foot, top)) = self.height else { return Some(1.0) };
-        if top < f.z - BELOW || (self.roof && foot >= f.z) {
+        // (a flat plate on the ground beside lava, marked as roof in the
+        // game's data, is floor to the lava's light: unlit it showed as a
+        // dark square in the floor warm in the glow)
+        let floor_by_flat_light = f.soft && top == foot && foot <= f.z;
+        if top < f.z - BELOW || (self.roof && foot >= f.z && !floor_by_flat_light) {
             return None;
         }
         if f.soft {
