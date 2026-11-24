@@ -354,9 +354,11 @@ fn cmd_smooth(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _st: 
         // (how many pixels of him are seen: none, and he is hidden)
         let seen = game.map().index(AVATAR).map_or(0, |i| game.view.pixel_ids.iter().filter(|&&p| p == i as u32 + 1).count());
         // (the camera's own time: when the picture began)
+        // (fine scrolling: the world shown shifted by this much more)
+        let fine = game.view.fine.unwrap_or((0.0, 0.0));
         let (cam, cam_at) = game.view.cam_smooth.map_or(((0.0, 0.0, 0.0), 0.0), |c| (c.0, c.1.saturating_duration_since(start).as_secs_f64() * 1000.0));
-        println!("tick {tick}.{sub}: ms {at:.1} world {},{},{} drawn at {},{} view {},{} figure {},{} pos {:.2},{:.2},{:.2} cam {:.2},{:.2},{:.2} cam_ms {cam_at:.1} frame {} drawn {drawn_frame} seen {seen}",
-            av.x, av.y, av.z, shown.0, shown.1, o.0, o.1, o.0 + shown.0, o.1 + shown.1, pos.0, pos.1, pos.2, cam.0, cam.1, cam.2, av.frame);
+        println!("tick {tick}.{sub}: ms {at:.1} world {},{},{} drawn at {},{} view {},{} figure {},{} pos {:.2},{:.2},{:.2} cam {:.2},{:.2},{:.2} cam_ms {cam_at:.1} frame {} drawn {drawn_frame} seen {seen} fine {:.2},{:.2}",
+            av.x, av.y, av.z, shown.0, shown.1, o.0, o.1, o.0 + shown.0, o.1 + shown.1, pos.0, pos.1, pos.2, cam.0, cam.1, cam.2, av.frame, fine.0, fine.1);
     };
     // (with a jump: the pointer there when jumping, no walk)
     if let Some((x, y)) = click.filter(|_| jump_at.is_none()) {

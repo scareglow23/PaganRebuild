@@ -197,9 +197,12 @@ impl Lerp {
                 g.advance(now);
                 g.at
             }
-            line => {
-                let p = line.position(now).0;
-                (p.0 as f32, p.1 as f32, p.2 as f32)
+            Lerp::Line { from, to, start, seconds } => {
+                // (unrounded: a camera following a climber by this went in
+                // whole steps and stood still every few pictures)
+                let t = (now.duration_since(*start).as_secs_f32() / *seconds).min(1.0);
+                let f = |a: f32, b: i32| a + (b as f32 - a) * t;
+                (f(from.0, to.0), f(from.1, to.1), f(from.2, to.2))
             }
         }
     }
@@ -1585,6 +1588,23 @@ impl Game {
             self.view.cam_exact = Some(c);
             return (c.0.round() as i32, c.1.round() as i32, c.2.round() as i32);
         }
+        // Climbing, the figure rises by less than a pixel a picture (24 in
+        // half a second), and a view following it in whole pixels stood
+        // still every fifth picture or so: all the world stuttered. While
+        // the one followed climbs, the camera keeps to where he is drawn,
+        // unrounded, and the world is shifted by the rest of a pixel (fine
+        // scrolling); the gliding camera goes on from there afterwards.
+        if self.options.smooth_camera && self.ui.menu.is_none() && !self.stasis {
+            if let Some(p) = self.climber_drawn() {
+                let c = (p.0, p.1, p.2 + 20.0);
+                self.view.cam_smooth = Some((c, now));
+                self.view.cam_vel = (0.0, 0.0, 0.0);
+                self.view.cam_pixels = (0, 0);
+                let c = (c.0 + quake.0 as f32, c.1 + quake.1 as f32, c.2);
+                self.view.cam_exact = Some(c);
+                return (c.0.round() as i32, c.1.round() as i32, c.2.round() as i32);
+            }
+        }
         match self.view.cam_smooth {
             // The camera is pulled after its target like on a damped spring.
             // A walking figure covers a different distance with every step
@@ -1682,6 +1702,17 @@ impl Game {
         self.view.cam_vel = (0.0, 0.0, 0.0);
         self.view.cam_pixels = (0, 0);
         Some(c)
+    }
+
+    /// Where the one the camera follows is drawn just now (unrounded), if
+    /// he is climbing onto a ledge and drawn between his steps.
+    fn climber_drawn(&mut self) -> Option<(f32, f32, f32)> {
+        let crate::effects::CameraMode::Follow(id) = self.camera else { return None };
+        let climbing = self.actors.get(&id).is_some_and(|m| m.busy() && (crate::anim::CLIMB_FIRST..=crate::anim::CLIMB_LAST).contains(&m.last_anim()));
+        if !climbing || !self.view.lerps.contains_key(&id) {
+            return None;
+        }
+        self.drawn_position(id)
     }
 
     /// The view follows the Avatar while a scene moves him (stasis).
