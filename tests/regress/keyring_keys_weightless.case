@@ -1,0 +1,6 @@
+# Keys on the key ring weigh nothing: the ring weighs the same with three
+# keys on it as empty (in the original it weighed 1 with all the keys;
+# here they hang on it as its contents and by midgame it weighed 20)
+do: t3;pack:79;putin:20311,82,0,5;putin:20311,82,0,6;putin:20311,82,0,7;info:20311
+expect: info: id 20311 shape   79 frame   3
+expect: weight 10 volume 1 parent 20310
