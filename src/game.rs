@@ -269,6 +269,8 @@ pub struct ViewState {
     /// conversation begins) as the view shows it: from where the view was,
     /// to where it goes, since when, how long (seconds).
     pub(crate) cam_ride: Option<CamRide>,
+    /// The camera over a jump of the one it follows (`Game::camera_on_figure`).
+    pub(crate) cam_jump: Option<CamJump>,
     /// Fine scrolling (on a camera ride): where the camera is exactly,
     /// unrounded; then how far (picture pixels across and down) it is
     /// beyond the picture drawn, and the world as drawn before the windows
@@ -312,6 +314,7 @@ impl ViewState {
             cam_vel: (0.0, 0.0, 0.0),
             cam_target: None,
             cam_ride: None,
+            cam_jump: None,
             cam_exact: None,
             fine: None,
             world_layer: Vec::new(),
@@ -1591,19 +1594,16 @@ impl Game {
         // Climbing, the figure rises by less than a pixel a picture (24 in
         // half a second), and a view following it in whole pixels stood
         // still every fifth picture or so: all the world stuttered. While
-        // the one followed climbs, the camera keeps to where he is drawn,
-        // unrounded, and the world is shifted by the rest of a pixel (fine
-        // scrolling); the gliding camera goes on from there afterwards.
-        if self.options.smooth_camera && self.ui.menu.is_none() && !self.stasis {
-            if let Some(p) = self.climber_drawn() {
-                let c = (p.0, p.1, p.2 + 20.0);
-                self.view.cam_smooth = Some((c, now));
-                self.view.cam_vel = (0.0, 0.0, 0.0);
-                self.view.cam_pixels = (0, 0);
-                let c = (c.0 + quake.0 as f32, c.1 + quake.1 as f32, c.2);
-                self.view.cam_exact = Some(c);
-                return (c.0.round() as i32, c.1.round() as i32, c.2.round() as i32);
-            }
+        // the one followed climbs or jumps, the camera keeps to where he is
+        // drawn, unrounded, and the world is shifted by the rest of a pixel
+        // (fine scrolling); the gliding camera goes on from there afterwards.
+        if !self.options.smooth_camera || self.ui.menu.is_some() || self.stasis {
+            self.view.cam_jump = None;
+        } else if let Some(c) = self.camera_on_figure(t, now) {
+            self.view.cam_pixels = (0, 0);
+            let c = (c.0 + quake.0 as f32, c.1 + quake.1 as f32, c.2);
+            self.view.cam_exact = Some(c);
+            return (c.0.round() as i32, c.1.round() as i32, c.2.round() as i32);
         }
         match self.view.cam_smooth {
             // The camera is pulled after its target like on a damped spring.
@@ -1633,15 +1633,7 @@ impl Game {
                 let even = matches!(self.camera, crate::effects::CameraMode::Follow(id) if matches!(self.view.lerps.get(&id), Some(Lerp::Glide(_))));
                 let smooth_time = if resting { 0.06 } else if even { 0.08 } else { 0.2 };
                 let dt = now.duration_since(last).as_secs_f32().min(0.1);
-                let omega = 2.0 / smooth_time;
-                let x = omega * dt;
-                let decay = 1.0 / (1.0 + x + 0.48 * x * x + 0.235 * x * x * x);
-                let glide = |c: f32, t: f32, v: &mut f32| {
-                    let change = c - t;
-                    let temp = (*v + omega * change) * dt;
-                    *v = (*v - omega * temp) * decay;
-                    t + (change + temp) * decay
-                };
+                let glide = |c: f32, t: f32, v: &mut f32| spring(c, t, v, smooth_time, dt);
                 let mut v = self.view.cam_vel;
                 let mut c = (glide(c.0, t.0, &mut v.0), glide(c.1, t.1, &mut v.1), glide(c.2, t.2, &mut v.2));
                 let gap = (c.0 - t.0).abs().max((c.1 - t.1).abs()).max((c.2 - t.2).abs());
@@ -1704,15 +1696,100 @@ impl Game {
         Some(c)
     }
 
-    /// Where the one the camera follows is drawn just now (unrounded), if
-    /// he is climbing onto a ledge and drawn between his steps.
-    fn climber_drawn(&mut self) -> Option<(f32, f32, f32)> {
-        let crate::effects::CameraMode::Follow(id) = self.camera else { return None };
-        let climbing = self.actors.get(&id).is_some_and(|m| m.busy() && (crate::anim::CLIMB_FIRST..=crate::anim::CLIMB_LAST).contains(&m.last_anim()));
-        if !climbing || !self.view.lerps.contains_key(&id) {
+    /// Where the view is (unrounded) while the one the camera follows
+    /// climbs onto a ledge or jumps, and a little after a jump; None: the
+    /// gliding camera as ever. Sets where the gliding camera is and how fast
+    /// it goes, to go on from there.
+    ///
+    /// Climbing, the camera is where he is drawn. Jumping, it glides after
+    /// him as when walking (a running jump hangs in the air for a moment
+    /// and then shoots on), but finer, and not up his arc: the view rose
+    /// and fell with every jump, in whole pixels and twice changing its
+    /// way, and on landing the gliding camera snapped the last few pixels.
+    /// It keeps the height it had when he set off and only goes down when
+    /// he comes down below that (a jump or a fall down); after the landing
+    /// it goes over to his new height smoothly in a moment. The gliding
+    /// camera shows the world in whole pixels, this one finer: the part of
+    /// a pixel between the two is made up gently at either end, else the
+    /// world jumped by it. `t`: the gliding camera's target.
+    fn camera_on_figure(&mut self, t: (f32, f32, f32), now: std::time::Instant) -> Option<(f32, f32, f32)> {
+        use crate::anim::{AIRWALK_JUMP, CLIMB_FIRST, CLIMB_LAST, JUMP, JUMP_UP, RUNNING_JUMP};
+        /// (seconds: making up the part of a pixel at the start; going
+        /// over to the new height; the spring, as the gliding camera's)
+        const START: f32 = 0.2;
+        const LAND: f32 = 0.3;
+        const SPRING: f32 = 0.2;
+        let crate::effects::CameraMode::Follow(id) = self.camera else {
+            self.view.cam_jump = None;
+            return None;
+        };
+        let (anim, busy, falling) = self.actors.get(&id).map_or((0, false, false), |m| (m.last_anim(), m.busy(), m.falling()));
+        if busy && (CLIMB_FIRST..=CLIMB_LAST).contains(&anim) && self.view.lerps.contains_key(&id) {
+            self.view.cam_jump = None;
+            let p = self.drawn_position(id)?;
+            let c = (p.0, p.1, p.2 + 20.0);
+            self.view.cam_smooth = Some((c, now));
+            self.view.cam_vel = (0.0, 0.0, 0.0);
+            return Some(c);
+        }
+        let jumping = busy && (matches!(anim, JUMP | AIRWALK_JUMP | RUNNING_JUMP | JUMP_UP) || falling);
+        if !jumping && self.view.cam_jump.is_none() {
             return None;
         }
-        self.drawn_position(id)
+        let p = self.drawn_position(id)?;
+        let z = p.2 + 20.0;
+        let (cam, last) = self.view.cam_smooth.unwrap_or(((p.0, p.1, z), now));
+        // (carried off somewhere else - a teleporter he jumped into: there at once)
+        if (cam.0 - p.0).abs().max((cam.1 - p.1).abs()) > 1500.0 {
+            self.view.cam_jump = None;
+            return None;
+        }
+        let mut j = match self.view.cam_jump {
+            // (jumping again while going over to the new height)
+            Some(j) if jumping && j.land.is_some() => CamJump { held: cam.2, land: None, whole: (0.0, 0.0, 0.0), since: now },
+            Some(j) => j,
+            None => CamJump { held: cam.2, whole: to_whole_pixels(cam), since: now, land: None },
+        };
+        let ease = |k: f32| {
+            let k = k.clamp(0.0, 1.0);
+            k * k * (3.0 - 2.0 * k)
+        };
+        let shift = |c: (f32, f32, f32), d: (f32, f32, f32), k: f32| (c.0 + d.0 * k, c.1 + d.1 * k, c.2 + d.2 * k);
+        let dt = now.duration_since(last).as_secs_f32().min(0.1);
+        let mut v = self.view.cam_vel;
+        let (x, y) = (spring(cam.0, p.0, &mut v.0, SPRING, dt), spring(cam.1, p.1, &mut v.1, SPRING, dt));
+        v.2 = 0.0;
+        let c = if jumping {
+            (x, y, j.held.min(z))
+        } else {
+            let (from, start, to) = j.land.get_or_insert((cam.2, now, t));
+            let (from, start) = (*from, *start);
+            let k = now.duration_since(start).as_secs_f32() / LAND;
+            // over to the gliding camera when it has come to where he
+            // stands (it shows him there as this one does); at once when
+            // he goes on (it is a part of a pixel off then); he may still
+            // sink a little after landing
+            let there = (x - t.0).abs().max((y - t.1).abs()) < 1.0;
+            let goes_on = (to.0, to.1) != (t.0, t.1);
+            *to = t;
+            if goes_on || (k >= 1.0 && there) {
+                self.view.cam_jump = None;
+                return None;
+            }
+            (x, y, from + (z - from) * ease(k))
+        };
+        self.view.cam_jump = Some(j);
+        self.view.cam_smooth = Some((c, now));
+        self.view.cam_vel = v;
+        // the part of a pixel: made up from the whole pixels at the start,
+        // up to the whole pixels at the end
+        let shown = shift(c, j.whole, 1.0 - ease(now.duration_since(j.since).as_secs_f32() / START));
+        // (up to where it will stand: where the camera is now is a part of a
+        // pixel either way of a whole one in turn)
+        Some(match j.land {
+            Some((_, start, to)) => shift(shown, to_whole_pixels(to), ease(now.duration_since(start).as_secs_f32() / LAND)),
+            None => shown,
+        })
     }
 
     /// The view follows the Avatar while a scene moves him (stasis).
@@ -1727,6 +1804,7 @@ impl Game {
         self.options.smooth_camera
             && (!self.view.lerps.is_empty()
                 || self.view.cam_ride.is_some()
+                || self.view.cam_jump.is_some()
                 || self.view.cam_smooth.is_some_and(|(c, _)| (c.0 - t.0 as f32).abs() + (c.1 - t.1 as f32).abs() + (c.2 - t.2 as f32).abs() >= 1.0)
                 || self.view.cam_vel != (0.0, 0.0, 0.0))
     }
@@ -2132,6 +2210,45 @@ pub(crate) struct CamRide {
     to: (i32, i32, i32),
     start: std::time::Instant,
     seconds: f32,
+}
+
+/// The camera over a jump, as the view shows it (`Game::camera_on_figure`):
+/// the height it keeps, the part of a pixel to make up at the start and
+/// since when, and once he has landed: from what height it goes over to
+/// his new one, since when, and the gliding camera's target then.
+#[derive(Clone, Copy)]
+pub(crate) struct CamJump {
+    held: f32,
+    /// (see `to_whole_pixels`: where the gliding camera showed the world
+    /// when he set off)
+    whole: (f32, f32, f32),
+    since: std::time::Instant,
+    land: Option<(f32, std::time::Instant, (f32, f32, f32))>,
+}
+
+/// One picture's way of a camera `c` (one axis) pulled after its target `t`
+/// like on a damped spring that comes to rest in about `smooth_time`
+/// seconds, `dt` seconds after the last; `v`: how fast it goes.
+fn spring(c: f32, t: f32, v: &mut f32, smooth_time: f32, dt: f32) -> f32 {
+    let omega = 2.0 / smooth_time;
+    let x = omega * dt;
+    let decay = 1.0 / (1.0 + x + 0.48 * x * x + 0.235 * x * x * x);
+    let change = c - t;
+    let temp = (*v + omega * change) * dt;
+    *v = (*v - omega * temp) * decay;
+    t + (change + temp) * decay
+}
+
+/// How far to move a camera at `c` (unrounded) so that with fine scrolling
+/// it shows the world where the gliding camera at `c` does, in whole pixels
+/// (as `Game::draw` works out `ViewState::fine`).
+fn to_whole_pixels(c: (f32, f32, f32)) -> (f32, f32, f32) {
+    let r = (c.0.round() as i32, c.1.round() as i32, c.2.round() as i32);
+    let across = crate::sorter::figure_sx(r.0, r.1) as f32 - (c.0 - c.1) / 4.0;
+    let down = crate::sorter::figure_sy(r.0, r.1, r.2) as f32 - ((c.0 + c.1) / 8.0 - c.2);
+    // (2 units along x and back along y are half a pixel across; a unit up
+    // is a pixel up)
+    (2.0 * across, -2.0 * across, -down)
 }
 
 /// The top left of the view on the screen, around the camera point `cam`
