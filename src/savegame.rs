@@ -481,6 +481,7 @@ impl Game {
         self.view.cam_smooth = None;
         self.view.cam_ride = None;
         self.view.cam_jump = None;
+        self.view.cam_settle = None;
         self.view.painted.clear();
         self.ui.drag = None;
         self.screen.fade = None;

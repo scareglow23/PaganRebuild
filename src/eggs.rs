@@ -364,6 +364,7 @@ impl Game {
             self.view.cam_smooth = None;
             self.view.cam_ride = None;
             self.view.cam_jump = None;
+            self.view.cam_settle = None;
             self.view.cam_vel = (0.0, 0.0, 0.0);
             self.view.lerps.clear();
             self.ui.picked = None;

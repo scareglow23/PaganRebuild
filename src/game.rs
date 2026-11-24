@@ -271,6 +271,11 @@ pub struct ViewState {
     pub(crate) cam_ride: Option<CamRide>,
     /// The camera over a jump of the one it follows (`Game::camera_on_figure`).
     pub(crate) cam_jump: Option<CamJump>,
+    /// The view was on the Avatar a scene moves in the last picture; and
+    /// when that began, how far the gliding camera was off him and since
+    /// when (made up gently, see `view_centre`).
+    pub(crate) cam_scene: bool,
+    pub(crate) cam_settle: Option<((f32, f32, f32), std::time::Instant)>,
     /// Fine scrolling (on a camera ride): where the camera is exactly,
     /// unrounded; then how far (picture pixels across and down) it is
     /// beyond the picture drawn, and the world as drawn before the windows
@@ -315,6 +320,8 @@ impl ViewState {
             cam_target: None,
             cam_ride: None,
             cam_jump: None,
+            cam_scene: false,
+            cam_settle: None,
             cam_exact: None,
             fine: None,
             world_layer: Vec::new(),
@@ -1616,6 +1623,8 @@ impl Game {
             // and a camera still closing up during the wait slid him across
             // the screen in the pose of a step (the march to the execution).
             Some((c, last)) if self.options.smooth_camera && self.ui.menu.is_none() && !far(c) && !self.scene_follows_avatar() => {
+                self.view.cam_scene = false;
+                self.view.cam_settle = None;
                 // Once the target stands still the camera closes up quickly:
                 // a view creeping on pixel by pixel shimmers as well.
                 let since = match self.view.cam_target {
@@ -1647,10 +1656,44 @@ impl Game {
                 (sx + quake.0, sy + quake.1, sz)
             }
             _ => {
+                // A scene takes the Avatar over (the march to the execution):
+                // the view, a few pixels behind him on its spring, jumped
+                // onto him. It makes the distance up in a moment instead
+                // (finer than whole pixels), then stays on him.
+                let scene = self.options.smooth_camera && self.ui.menu.is_none() && self.scene_follows_avatar();
+                let settle = if scene && !self.view.cam_scene {
+                    self.view.cam_smooth.filter(|&(c, _)| !far(c)).map(|(c, last)| {
+                        // (where the gliding camera would show the world
+                        // now, in whole pixels kept from him, see
+                        // `pixel_steady`: one more step of its spring)
+                        let dt = now.duration_since(last).as_secs_f32().min(0.1);
+                        let mut v = self.view.cam_vel;
+                        let c = (spring(c.0, t.0, &mut v.0, 0.08, dt), spring(c.1, t.1, &mut v.1, 0.08, dt), spring(c.2, t.2, &mut v.2, 0.08, dt));
+                        let ti = (t.0 as i32, t.1 as i32, t.2 as i32);
+                        let r = pixel_steady(c, ti, &mut self.view.cam_pixels.clone());
+                        let r = (r.0 as f32, r.1 as f32, r.2 as f32);
+                        let w = to_whole_pixels(r);
+                        ((r.0 + w.0 - t.0, r.1 + w.1 - t.1, r.2 + w.2 - t.2), now)
+                    })
+                } else if scene {
+                    self.view.cam_settle
+                } else {
+                    None
+                };
+                self.view.cam_scene = scene;
                 self.view.cam_vel = (0.0, 0.0, 0.0);
                 self.view.cam_smooth = Some((t, now));
                 self.view.cam_pixels = (0, 0);
-                target
+                const SETTLE: f32 = 0.25;
+                let k = settle.map_or(1.0, |(_, start)| now.duration_since(start).as_secs_f32() / SETTLE);
+                self.view.cam_settle = settle.filter(|_| k < 1.0);
+                let Some((off, _)) = self.view.cam_settle else { return target };
+                let e = k * k * (3.0 - 2.0 * k);
+                // (and over to the whole pixels of the view on him)
+                let w = to_whole_pixels(t);
+                let c = (t.0 + off.0 * (1.0 - e) + w.0 * e + quake.0 as f32, t.1 + off.1 * (1.0 - e) + w.1 * e + quake.1 as f32, t.2 + off.2 * (1.0 - e) + w.2 * e);
+                self.view.cam_exact = Some(c);
+                (c.0.round() as i32, c.1.round() as i32, c.2.round() as i32)
             }
         }
     }
@@ -1840,6 +1883,7 @@ impl Game {
             && (!self.view.lerps.is_empty()
                 || self.view.cam_ride.is_some()
                 || self.view.cam_jump.is_some()
+                || self.view.cam_settle.is_some()
                 || self.view.cam_smooth.is_some_and(|(c, _)| (c.0 - t.0 as f32).abs() + (c.1 - t.1 as f32).abs() + (c.2 - t.2 as f32).abs() >= 1.0)
                 || self.view.cam_vel != (0.0, 0.0, 0.0))
     }
