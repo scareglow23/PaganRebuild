@@ -303,8 +303,10 @@ fn fetch_world(x: i32, y: i32) -> vec3<u32> {
 
 /// The smoothed picture (four pixels per texel, see XBR_HEAD), for the stretch.
 const FETCH_SMOOTH: &str = r#"
-fn fetch(x: i32, y: i32) -> vec3<u32> {
-    let v = textureLoad(pic, vec2<i32>(x, y) / 2, 0);
+// the world alone, smoothed as well (fine scrolling)
+@group(0) @binding(4) var world: texture_2d<u32>;
+
+fn one_of_four(v: vec4<u32>, x: i32, y: i32) -> vec3<u32> {
     var c = v.x;
     switch (y & 1) * 2 + (x & 1) {
         case 1: { c = v.y; }
@@ -315,9 +317,12 @@ fn fetch(x: i32, y: i32) -> vec3<u32> {
     return vec3<u32>((c >> 16u) & 255u, (c >> 8u) & 255u, c & 255u);
 }
 
-// (no fine scrolling with smoothing: never asked for)
+fn fetch(x: i32, y: i32) -> vec3<u32> {
+    return one_of_four(textureLoad(pic, vec2<i32>(x, y) / 2, 0), x, y);
+}
+
 fn fetch_world(x: i32, y: i32) -> vec3<u32> {
-    return fetch(x, y);
+    return one_of_four(textureLoad(world, vec2<i32>(x, y) / 2, 0), x, y);
 }
 "#;
 
@@ -510,8 +515,9 @@ struct Frame {
     /// The mask of pixels left sharp is empty on the graphics card (it
     /// mostly is: it is only written when something is marked).
     sharp_clear: bool,
-    /// Made the first time a picture of this size is smoothed.
-    smoothing: Option<Smoothing>,
+    /// Made the first time a picture of this size is smoothed: for the
+    /// picture, and for the world alone (fine scrolling).
+    smoothing: Option<(Smoothing, Smoothing)>,
 }
 
 impl Frame {
@@ -549,8 +555,9 @@ struct Smoothing {
 }
 
 impl Smoothing {
-    /// For the pictures of `frame`; `layouts`: those of the three passes.
-    fn new(device: &wgpu::Device, frame: &Frame, layouts: [&wgpu::BindGroupLayout; 3]) -> Smoothing {
+    /// For the pictures of `frame` (`source`: its picture or its world);
+    /// `layouts`: those of the three passes.
+    fn new(device: &wgpu::Device, frame: &Frame, source: &Tex, layouts: [&wgpu::BindGroupLayout; 3]) -> Smoothing {
         let (w, h) = frame.picture.size;
         let usage = wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT;
         let grid = Tex::new(device, (w + 4, h + 4), wgpu::TextureFormat::Rg32Uint, usage);
@@ -561,7 +568,7 @@ impl Smoothing {
             let entries: Vec<_> = views.iter().enumerate().map(|(b, v)| wgpu::BindGroupEntry { binding: b as u32, resource: wgpu::BindingResource::TextureView(v) }).collect();
             device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("pagan xbr"), layout, entries: &entries })
         };
-        let groups = [group(layouts[0], &[&frame.picture]), group(layouts[1], &[&grid]), group(layouts[2], &[&grid, &diags, &frame.sharp])];
+        let groups = [group(layouts[0], &[source]), group(layouts[1], &[&grid]), group(layouts[2], &[&grid, &diags, &frame.sharp])];
         Smoothing { grid, diags, out, groups }
     }
 }
@@ -592,7 +599,7 @@ pub struct Scaler {
     /// Fine scrolling: the camera is this far (in picture pixels, across
     /// and down) beyond where the picture was drawn from; the world (where
     /// no window is drawn over it) is shown shifted by as many window
-    /// pixels. Only without smoothing and tube look.
+    /// pixels. Not with the tube look.
     shift: (f32, f32),
 }
 
@@ -606,7 +613,7 @@ impl Scaler {
             let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some("pagan xbr"), entries: &entries });
             (pipeline(device, &format!("{XBR_PRELUDE}{source}"), &layout, out), layout)
         };
-        let stretch_layout = |pic, world: bool| {
+        let stretch_layout = |pic, world| {
             let mut entries = vec![
                 texture_entry(0, pic),
                 texture_entry(1, wgpu::TextureSampleType::Uint),
@@ -618,13 +625,11 @@ impl Scaler {
                     count: None,
                 },
             ];
-            if world {
-                entries.push(texture_entry(4, float));
-            }
+            entries.push(texture_entry(4, world));
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some("pagan stretch"), entries: &entries })
         };
         let stretch = |pic, ty: &str, fetch: &str| {
-            let layout = stretch_layout(pic, fetch == FETCH_PLAIN);
+            let layout = stretch_layout(pic, pic);
             (pipeline(device, &STRETCH.replace("PIC", ty).replace("FETCH", fetch), &layout, format), layout)
         };
         let crt_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -683,7 +688,7 @@ impl Scaler {
         let Some(frame) = &mut self.frame else { return };
         frame.picture.write(queue, as_bytes(pixels), 4);
         self.shift = (0.0, 0.0);
-        if let Some((world, shift)) = world.filter(|(px, _)| px.len() >= (w * h) as usize && matches!(look, Look::Plain)) {
+        if let Some((world, shift)) = world.filter(|(px, _)| px.len() >= (w * h) as usize && !matches!(look, Look::Crt)) {
             frame.world.write(queue, as_bytes(world), 4);
             self.shift = shift;
         }
@@ -692,33 +697,19 @@ impl Scaler {
         let Look::Xbr(mask) = look else { return };
         frame.set_sharp(queue, mask);
         if frame.smoothing.is_none() {
-            let smoothing = Smoothing::new(device, frame, [&self.xbr[0].1, &self.xbr[1].1, &self.xbr[2].1]);
+            let layouts = [&self.xbr[0].1, &self.xbr[1].1, &self.xbr[2].1];
+            let smoothing = (Smoothing::new(device, frame, &frame.picture, layouts), Smoothing::new(device, frame, &frame.world, layouts));
             frame.smoothing = Some(smoothing);
         }
-        let Some(s) = &frame.smoothing else { return };
+        let Some((picture, world)) = &frame.smoothing else { return };
         let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("pagan xbr") });
-        for (i, target) in [&s.grid, &s.diags, &s.out].into_iter().enumerate() {
-            // (time stamps: the start and the end of each pass)
-            let timestamp_writes = self.timing.as_ref().map(|(q, at)| wgpu::RenderPassTimestampWrites {
-                query_set: q,
-                beginning_of_pass_write_index: Some(at + 2 * i as u32),
-                end_of_pass_write_index: Some(at + 2 * i as u32 + 1),
-            });
-            let view = target.view();
-            let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("pagan xbr"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
-                    ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::BLACK), store: wgpu::StoreOp::Store },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes,
-                occlusion_query_set: None,
-            });
-            pass.set_pipeline(&self.xbr[i].0);
-            pass.set_bind_group(0, &s.groups[i], &[]);
-            pass.draw(0..3, 0..1);
+        // (the world as well when fine scrolling; time stamps for the picture only)
+        let fine = self.shift != (0.0, 0.0);
+        let passes = [picture, world].into_iter().enumerate().filter(|&(n, _)| n == 0 || fine);
+        for (n, s) in passes {
+            for (k, target) in [&s.grid, &s.diags, &s.out].into_iter().enumerate() {
+                smoothing_pass(&self.xbr, self.timing.as_ref(), &mut enc, s, k, target, (n == 0).then_some(k));
+            }
         }
         queue.submit([enc.finish()]);
     }
@@ -727,7 +718,7 @@ impl Scaler {
     fn input(&self) -> Option<(&Tex, (u32, u32))> {
         let frame = self.frame.as_ref()?;
         match &frame.smoothing {
-            Some(s) if self.smoothed => Some((&s.out, (2 * s.out.size.0, 2 * s.out.size.1))),
+            Some((s, _)) if self.smoothed => Some((&s.out, (2 * s.out.size.0, 2 * s.out.size.1))),
             _ => Some((&frame.picture, frame.picture.size)),
         }
     }
@@ -772,22 +763,27 @@ impl Scaler {
         let gkey = (self.smoothed, sw, sh, w, h);
         if self.stretch_group.as_ref().map(|g| g.0) != Some(gkey) {
             let (Some((input, _)), Some((_, tx, ty)), Some(frame)) = (self.input(), &self.taps, &self.frame) else { return false };
-            let (input, tx, ty, world) = (input.view(), tx.view(), ty.view(), frame.world.view());
-            let mut entries = vec![
+            // (the world as the stretch takes it: smoothed or not)
+            let world = match &frame.smoothing {
+                Some((_, w)) if self.smoothed => w.out.view(),
+                _ => frame.world.view(),
+            };
+            let (input, tx, ty) = (input.view(), tx.view(), ty.view());
+            let entries = [
                 wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&input) },
                 wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&tx) },
                 wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::TextureView(&ty) },
                 wgpu::BindGroupEntry { binding: 3, resource: self.corner.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 4, resource: wgpu::BindingResource::TextureView(&world) },
             ];
-            if !self.smoothed {
-                entries.push(wgpu::BindGroupEntry { binding: 4, resource: wgpu::BindingResource::TextureView(&world) });
-            }
             let group = device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("pagan stretch"), layout: &self.stretch[self.smoothed as usize].1, entries: &entries });
             self.stretch_group = Some((gkey, group));
         }
         let Some((_, group)) = &self.stretch_group else { return false };
-        // (fine scrolling: the shift in whole window pixels)
-        let (dx, dy) = if self.smoothed { (0, 0) } else { ((self.shift.0 * w as f32 / sw as f32).round() as i32, (self.shift.1 * h as f32 / sh as f32).round() as i32) };
+        // (fine scrolling: the shift in whole window pixels; it is in pixels
+        // of the picture as drawn, the smoothed one has twice as many)
+        let (pw, ph) = if self.smoothed { (sw / 2, sh / 2) } else { (sw, sh) };
+        let (dx, dy) = ((self.shift.0 * w as f32 / pw as f32).round() as i32, (self.shift.1 * h as f32 / ph as f32).round() as i32);
         queue.write_buffer(&self.corner, 0, as_bytes(&[x, y, dx as u32, dy as u32]));
         pass.set_viewport(x as f32, y as f32, w as f32, h as f32, 0.0, 1.0);
         pass.set_pipeline(&self.stretch[self.smoothed as usize].0);
@@ -797,9 +793,37 @@ impl Scaler {
     }
 }
 
+/// Puts the smoothing's pass `k` (of `xbr`) for `s` into `enc`,
+/// rendering into `target`; `timed`: which time stamps to write (see
+/// `Scaler::timing`).
+fn smoothing_pass(xbr: &[(wgpu::RenderPipeline, wgpu::BindGroupLayout); 3], timing: Option<&(wgpu::QuerySet, u32)>, enc: &mut wgpu::CommandEncoder, s: &Smoothing, k: usize, target: &Tex, timed: Option<usize>) {
+    // (time stamps: the start and the end of each pass)
+    let timestamp_writes = timing.zip(timed).map(|((q, at), i)| wgpu::RenderPassTimestampWrites {
+        query_set: q,
+        beginning_of_pass_write_index: Some(at + 2 * i as u32),
+        end_of_pass_write_index: Some(at + 2 * i as u32 + 1),
+    });
+    let view = target.view();
+    let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+        label: Some("pagan xbr"),
+        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+            view: &view,
+            resolve_target: None,
+            ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::BLACK), store: wgpu::StoreOp::Store },
+        })],
+        depth_stencil_attachment: None,
+        timestamp_writes,
+        occlusion_query_set: None,
+    });
+    pass.set_pipeline(&xbr[k].0);
+    pass.set_bind_group(0, &s.groups[k], &[]);
+    pass.draw(0..3, 0..1);
+}
+
 /// For the test command `gpucheck`: the picture shown with `look` and
 /// stretched to `dst` on the graphics card, without a window.
-pub fn offscreen(pixels: &[u32], w: u32, h: u32, look: Look, dst: (u32, u32)) -> Result<Vec<u32>, String> {
+/// `world`: as for `Scaler::set_picture` (fine scrolling).
+pub fn offscreen(pixels: &[u32], w: u32, h: u32, look: Look, world: Option<(&[u32], (f32, f32))>, dst: (u32, u32)) -> Result<Vec<u32>, String> {
     let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::from_env_or_default());
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::HighPerformance,
@@ -819,7 +843,7 @@ pub fn offscreen(pixels: &[u32], w: u32, h: u32, look: Look, dst: (u32, u32)) ->
     .map_err(|e| format!("no device: {e}"))?;
     let format = wgpu::TextureFormat::Bgra8Unorm;
     let mut scaler = Scaler::new(&device, format);
-    scaler.set_picture(&device, &queue, pixels, w, h, look, None);
+    scaler.set_picture(&device, &queue, pixels, w, h, look, world);
     let target = Tex::new(&device, dst, format, wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC);
     // how long the graphics card takes (its own time stamps, if it has
     // them): the smoothing and the stretch, 50 times
@@ -835,7 +859,7 @@ pub fn offscreen(pixels: &[u32], w: u32, h: u32, look: Look, dst: (u32, u32)) ->
     let t = std::time::Instant::now();
     for run in 0..RUNS {
         scaler.timing = queries.clone().map(|q| (q, per * run));
-        scaler.set_picture(&device, &queue, pixels, w, h, look, None);
+        scaler.set_picture(&device, &queue, pixels, w, h, look, world);
         let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("pagan check") });
         {
             let view = target.view();

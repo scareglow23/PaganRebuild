@@ -215,17 +215,20 @@ fn cmd_bandcheck(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _s
     Ok(Flow::Done)
 }
 
-/// gpucheck:<w>x<h>[s|c]  the picture stretched to w x h (s: smoothed first) on the graphics
+/// gpucheck:<w>x<h>[s|c][f]  the picture stretched to w x h (s: smoothed first) on the graphics
 /// card and on the processor: both must give the same pixels; c: with the tube monitor's
-/// look (graphics card only), written to gpucheck_crt.png
+/// look (graphics card only), written to gpucheck_crt.png; f: fine scrolling as well, the
+/// world shifted by a pixel across and a window over its middle (the picture differs from
+/// the world there): the window must stay, the rest be shifted
 fn cmd_gpucheck(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _st: &mut State, _name: &str, arg: &str, _cmd: &str) -> Result<Flow, String> {
+    let (arg, fine) = arg.strip_suffix('f').map_or((arg, false), |a| (a, true));
     let (smooth, crt) = (arg.ends_with('s'), arg.ends_with('c'));
     let (w, h) = arg.trim_end_matches(['s', 'c']).split_once('x').and_then(|(w, h)| Some((w.parse::<usize>().ok()?, h.parse::<usize>().ok()?))).ok_or("gpucheck:<w>x<h>[s|c]")?;
     game.draw(surf, opts, false);
     let (sw, sh) = (surf.width as usize, surf.height as usize);
     let sharp: &[bool] = if game.view.sharp.len() == sw * sh { &game.view.sharp } else { &[] };
     if crt {
-        let gpu = crate::gpuscale::offscreen(&surf.pixels, sw as u32, sh as u32, crate::gpuscale::Look::Crt, (w as u32, h as u32))?;
+        let gpu = crate::gpuscale::offscreen(&surf.pixels, sw as u32, sh as u32, crate::gpuscale::Look::Crt, None, (w as u32, h as u32))?;
         let mut a = Surface::new(w as i32, h as i32);
         a.pixels = gpu;
         save_png(Path::new("gpucheck_crt.png"), &a).map_err(|e| e.to_string())?;
@@ -234,7 +237,41 @@ fn cmd_gpucheck(game: &mut Game, surf: &mut Surface, opts: &mut ViewOptions, _st
     }
     let t = Instant::now();
     let look = if smooth { crate::gpuscale::Look::Xbr(sharp) } else { crate::gpuscale::Look::Plain };
-    let gpu = crate::gpuscale::offscreen(&surf.pixels, sw as u32, sh as u32, look, (w as u32, h as u32))?;
+    let gpu = crate::gpuscale::offscreen(&surf.pixels, sw as u32, sh as u32, look, None, (w as u32, h as u32))?;
+    if fine {
+        // the window: a grey square in the middle of the picture only
+        let mut pic = surf.pixels.clone();
+        let inside = |x: usize, y: usize| (sw / 3..2 * sw / 3).contains(&x) && (sh / 3..2 * sh / 3).contains(&y);
+        for y in 0..sh {
+            for x in 0..sw {
+                if inside(x, y) {
+                    pic[y * sw + x] = 0x808080;
+                }
+            }
+        }
+        let shifted = crate::gpuscale::offscreen(&pic, sw as u32, sh as u32, look, Some((&surf.pixels, (1.0, 0.0))), (w as u32, h as u32))?;
+        let plain = crate::gpuscale::offscreen(&pic, sw as u32, sh as u32, look, None, (w as u32, h as u32))?;
+        let dx = (w as f32 / sw as f32).round() as usize;
+        // (a few pixels off the window's edges: smoothing mixes them)
+        let margin = 4 * w / sw;
+        let (mut bad, mut checked) = (0, 0);
+        for y in 0..h {
+            for x in 0..w - dx {
+                let (px, py) = (x * sw / w, y * sh / h);
+                let near = (sw / 3 - 3..2 * sw / 3 + 3).contains(&px) && (sh / 3 - 3..2 * sh / 3 + 3).contains(&py) && !inside(px, py);
+                if near || x < margin {
+                    continue;
+                }
+                let want = if inside(px, py) { plain[y * w + x] } else { gpu[y * w + x + dx] };
+                checked += 1;
+                if shifted[y * w + x] != want {
+                    bad += 1;
+                }
+            }
+        }
+        println!("gpucheck fine: {bad} of {checked} pixels differ (shifted by {dx} window pixels{})", if smooth { ", smoothed" } else { "" });
+        return Ok(Flow::Done);
+    }
     let gpu_ms = t.elapsed().as_secs_f64() * 1000.0;
     let (mut big, mut up) = (Vec::new(), crate::upscale::Upscale::default());
     let src = if smooth {
