@@ -1600,7 +1600,6 @@ impl Game {
         if !self.options.smooth_camera || self.ui.menu.is_some() || self.stasis {
             self.view.cam_jump = None;
         } else if let Some(c) = self.camera_on_figure(t, now) {
-            self.view.cam_pixels = (0, 0);
             let c = (c.0 + quake.0 as f32, c.1 + quake.1 as f32, c.2);
             self.view.cam_exact = Some(c);
             return (c.0.round() as i32, c.1.round() as i32, c.2.round() as i32);
@@ -1697,43 +1696,44 @@ impl Game {
     }
 
     /// Where the view is (unrounded) while the one the camera follows
-    /// climbs onto a ledge or jumps, and a little after a jump; None: the
+    /// climbs onto a ledge, jumps or falls, and a little after; None: the
     /// gliding camera as ever. Sets where the gliding camera is and how fast
     /// it goes, to go on from there.
     ///
-    /// Climbing, the camera is where he is drawn. Jumping, it glides after
-    /// him as when walking (a running jump hangs in the air for a moment
-    /// and then shoots on), but finer, and not up his arc: the view rose
-    /// and fell with every jump, in whole pixels and twice changing its
-    /// way, and on landing the gliding camera snapped the last few pixels.
-    /// It keeps the height it had when he set off and only goes down when
-    /// he comes down below that (a jump or a fall down); after the landing
-    /// it goes over to his new height smoothly in a moment. The gliding
-    /// camera shows the world in whole pixels, this one finer: the part of
-    /// a pixel between the two is made up gently at either end, else the
-    /// world jumped by it. `t`: the gliding camera's target.
+    /// Climbing, the camera is where he is drawn: he rises by less than a
+    /// pixel a picture, and a view following in whole pixels stood still
+    /// every fifth picture or so. Jumping or falling, it glides after him
+    /// as when walking (a running jump hangs in the air for a moment and
+    /// then shoots on), but finer, and not up his arc: the view rose and
+    /// fell with every jump, in whole pixels and twice changing its way. It
+    /// keeps the height it had when he set off and only goes down when he
+    /// comes down below that (a jump or a fall down). Afterwards it goes
+    /// over to the gliding camera gently: to his new height, to where that
+    /// aims and as tightly as that follows (handed over at once, the walking
+    /// camera, kept close to him, rushed after him from far behind; and on
+    /// landing snapped the last few pixels). The gliding camera shows the
+    /// world in whole pixels, this one finer (fine scrolling): the part of a
+    /// pixel between the two is made up gently at either end, and so is a
+    /// start where the view was elsewhere (climbing, where the gliding
+    /// camera was behind him), else the world jumped by it. `t`: the gliding
+    /// camera's target.
     fn camera_on_figure(&mut self, t: (f32, f32, f32), now: std::time::Instant) -> Option<(f32, f32, f32)> {
         use crate::anim::{AIRWALK_JUMP, CLIMB_FIRST, CLIMB_LAST, JUMP, JUMP_UP, RUNNING_JUMP};
-        /// (seconds: making up the part of a pixel at the start; going
-        /// over to the new height; the spring, as the gliding camera's)
-        const START: f32 = 0.2;
-        const LAND: f32 = 0.3;
+        /// (seconds: making up for where the view was at the start; going
+        /// over to the gliding camera; the springs across and up)
+        const START: f32 = 0.25;
+        const AFTER: f32 = 0.4;
         const SPRING: f32 = 0.2;
+        const SPRING_UP: f32 = 0.12;
         let crate::effects::CameraMode::Follow(id) = self.camera else {
             self.view.cam_jump = None;
             return None;
         };
         let (anim, busy, falling) = self.actors.get(&id).map_or((0, false, false), |m| (m.last_anim(), m.busy(), m.falling()));
-        if busy && (CLIMB_FIRST..=CLIMB_LAST).contains(&anim) && self.view.lerps.contains_key(&id) {
-            self.view.cam_jump = None;
-            let p = self.drawn_position(id)?;
-            let c = (p.0, p.1, p.2 + 20.0);
-            self.view.cam_smooth = Some((c, now));
-            self.view.cam_vel = (0.0, 0.0, 0.0);
-            return Some(c);
-        }
-        let jumping = busy && (matches!(anim, JUMP | AIRWALK_JUMP | RUNNING_JUMP | JUMP_UP) || falling);
-        if !jumping && self.view.cam_jump.is_none() {
+        let climbing = busy && (CLIMB_FIRST..=CLIMB_LAST).contains(&anim) && self.view.lerps.contains_key(&id);
+        let jumping = !climbing && busy && (matches!(anim, JUMP | AIRWALK_JUMP | RUNNING_JUMP | JUMP_UP) || falling);
+        let doing = if climbing { Some(Doing::Climb) } else if jumping { Some(Doing::Jump) } else { None };
+        if doing.is_none() && self.view.cam_jump.is_none() {
             return None;
         }
         let p = self.drawn_position(id)?;
@@ -1744,12 +1744,6 @@ impl Game {
             self.view.cam_jump = None;
             return None;
         }
-        let mut j = match self.view.cam_jump {
-            // (jumping again while going over to the new height)
-            Some(j) if jumping && j.land.is_some() => CamJump { held: cam.2, land: None, whole: (0.0, 0.0, 0.0), since: now },
-            Some(j) => j,
-            None => CamJump { held: cam.2, whole: to_whole_pixels(cam), since: now, land: None },
-        };
         let ease = |k: f32| {
             let k = k.clamp(0.0, 1.0);
             k * k * (3.0 - 2.0 * k)
@@ -1757,39 +1751,80 @@ impl Game {
         let shift = |c: (f32, f32, f32), d: (f32, f32, f32), k: f32| (c.0 + d.0 * k, c.1 + d.1 * k, c.2 + d.2 * k);
         let dt = now.duration_since(last).as_secs_f32().min(0.1);
         let mut v = self.view.cam_vel;
-        let (x, y) = (spring(cam.0, p.0, &mut v.0, SPRING, dt), spring(cam.1, p.1, &mut v.1, SPRING, dt));
-        v.2 = 0.0;
-        let c = if jumping {
-            (x, y, j.held.min(z))
+        // something new begins (or after the gliding camera): from where
+        // the view is, and the height it has
+        let (mut j, fresh) = match self.view.cam_jump {
+            Some(j) if doing.is_none() || doing == Some(j.doing) => (j, false),
+            was => {
+                // (after the gliding camera: where it showed the world, in
+                // whole pixels kept from him, see `pixel_steady`)
+                let gliding = || {
+                    let ti = (t.0.round() as i32, t.1.round() as i32, t.2.round() as i32);
+                    let r = pixel_steady(cam, ti, &mut self.view.cam_pixels.clone());
+                    let r = (r.0 as f32, r.1 as f32, r.2 as f32);
+                    shift(r, to_whole_pixels(r), 1.0)
+                };
+                let shown = was.map_or_else(gliding, |j| j.shown);
+                (CamJump { doing: doing.unwrap_or(Doing::Jump), held: cam.2, start: (0.0, 0.0, 0.0), shown, since: now, after: None }, true)
+            }
+        };
+        if doing.is_none() && j.after.is_none() {
+            j.after = Some((now, t));
+        }
+        if doing.is_some() {
+            j.after = None;
+        }
+        // afterwards: how far over to the gliding camera
+        let k = j.after.map(|(start, _)| now.duration_since(start).as_secs_f32() / AFTER);
+        let e = k.map_or(0.0, ease);
+        let c = if doing == Some(Doing::Climb) {
+            let c = (p.0, p.1, z);
+            if dt > 0.0 {
+                v = ((c.0 - cam.0) / dt, (c.1 - cam.1) / dt, (c.2 - cam.2) / dt);
+            }
+            c
         } else {
-            let (from, start, to) = j.land.get_or_insert((cam.2, now, t));
-            let (from, start) = (*from, *start);
-            let k = now.duration_since(start).as_secs_f32() / LAND;
-            // over to the gliding camera when it has come to where he
-            // stands (it shows him there as this one does); at once when
-            // he goes on (it is a part of a pixel off then); he may still
-            // sink a little after landing
-            let there = (x - t.0).abs().max((y - t.1).abs()) < 1.0;
-            let goes_on = (to.0, to.1) != (t.0, t.1);
-            *to = t;
-            if goes_on || (k >= 1.0 && there) {
+            // (the gliding camera's spring: closer to one walking evenly)
+            let even = matches!(self.view.lerps.get(&id), Some(Lerp::Glide(_)));
+            let tight = SPRING + (if even { 0.08 } else { SPRING } - SPRING) * e;
+            let aim = (p.0 + (t.0 - p.0) * e, p.1 + (t.1 - p.1) * e, if doing.is_some() { j.held.min(z) } else { z });
+            (spring(cam.0, aim.0, &mut v.0, tight, dt), spring(cam.1, aim.1, &mut v.1, tight, dt), spring(cam.2, aim.2, &mut v.2, SPRING_UP, dt))
+        };
+        if fresh {
+            j.start = (j.shown.0 - c.0, j.shown.1 - c.1, j.shown.2 - c.2);
+        }
+        // (he has walked on since)
+        let walked_on = j.after.is_some_and(|(_, was)| (was.0, was.1) != (t.0, t.1));
+        if let Some(k) = k {
+            // over to the gliding camera when that shows the world as this
+            // one does: when it has come to where he stands (closer than it
+            // would snap to it), or he has walked on (then it follows him
+            // as this one)
+            let there = (c.0 - t.0).abs().max((c.1 - t.1).abs()).max((c.2 - t.2).abs()) < 0.3;
+            if k >= 1.0 && (there || walked_on) {
                 self.view.cam_jump = None;
                 return None;
             }
-            (x, y, from + (z - from) * ease(k))
-        };
-        self.view.cam_jump = Some(j);
+        }
         self.view.cam_smooth = Some((c, now));
         self.view.cam_vel = v;
-        // the part of a pixel: made up from the whole pixels at the start,
-        // up to the whole pixels at the end
-        let shown = shift(c, j.whole, 1.0 - ease(now.duration_since(j.since).as_secs_f32() / START));
-        // (up to where it will stand: where the camera is now is a part of a
-        // pixel either way of a whole one in turn)
-        Some(match j.land {
-            Some((_, start, to)) => shift(shown, to_whole_pixels(to), ease(now.duration_since(start).as_secs_f32() / LAND)),
-            None => shown,
-        })
+        // made up: where the view was at the start
+        let shown = shift(c, j.start, 1.0 - ease(now.duration_since(j.since).as_secs_f32() / START));
+        // and over to the whole pixels of the gliding camera at the end:
+        // standing, those where he stands (the camera comes to rest there);
+        // walking on, those it keeps from him on the way (see
+        // `pixel_steady`; and goes on with the same)
+        let ti = (t.0.round() as i32, t.1.round() as i32, t.2.round() as i32);
+        let r = pixel_steady(c, ti, &mut self.view.cam_pixels);
+        let whole = if walked_on {
+            let r = (r.0 as f32, r.1 as f32, r.2 as f32);
+            shift(r, to_whole_pixels(r), 1.0)
+        } else {
+            shift(c, to_whole_pixels(t), 1.0)
+        };
+        j.shown = shift(shown, (whole.0 - shown.0, whole.1 - shown.1, whole.2 - shown.2), e);
+        self.view.cam_jump = Some(j);
+        Some(j.shown)
     }
 
     /// The view follows the Avatar while a scene moves him (stasis).
@@ -2212,18 +2247,25 @@ pub(crate) struct CamRide {
     seconds: f32,
 }
 
-/// The camera over a jump, as the view shows it (`Game::camera_on_figure`):
-/// the height it keeps, the part of a pixel to make up at the start and
-/// since when, and once he has landed: from what height it goes over to
-/// his new one, since when, and the gliding camera's target then.
+/// The camera over a climb or a jump, as the view shows it
+/// (`Game::camera_on_figure`): over which; the height it keeps; how far
+/// the view was off at the start (made up gently), and since when; where
+/// it was shown last; and once that is over: since when it goes over to
+/// the gliding camera, and that one's target then.
 #[derive(Clone, Copy)]
 pub(crate) struct CamJump {
+    doing: Doing,
     held: f32,
-    /// (see `to_whole_pixels`: where the gliding camera showed the world
-    /// when he set off)
-    whole: (f32, f32, f32),
+    start: (f32, f32, f32),
     since: std::time::Instant,
-    land: Option<(f32, std::time::Instant, (f32, f32, f32))>,
+    shown: (f32, f32, f32),
+    after: Option<(std::time::Instant, (f32, f32, f32))>,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Doing {
+    Climb,
+    Jump,
 }
 
 /// One picture's way of a camera `c` (one axis) pulled after its target `t`
