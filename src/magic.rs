@@ -552,7 +552,12 @@ impl Game {
             _ if it.shape == crate::potions::POTION => w * 10 * (it.quality as i32).max(1),
             _ => w * 10,
         };
-        own + inside.get(&id).map_or(0, |ids| ids.iter().map(|&c| self.weight_in(c, inside)).sum::<i32>())
+        // Keys on the key ring weigh nothing: in the original the ring
+        // weighs the same with all the keys on it (here they hang on it as
+        // its contents, and by midgame the ring weighed 20)
+        let ring = it.shape == crate::controls::KEYRING;
+        let counts = |c: &u16| !ring || self.map().get(*c).is_none_or(|k| k.shape != crate::keys::KEY);
+        own + inside.get(&id).map_or(0, |ids| ids.iter().filter(|c| counts(c)).map(|&c| self.weight_in(c, inside)).sum::<i32>())
     }
 
     /// Weight of everything resting on top of an item (pressure plates).
