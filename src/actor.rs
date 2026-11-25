@@ -493,6 +493,21 @@ impl Mover {
                     self.settle = false;
                     self.first_step = true;
                     self.start(self.stand_anim, item, anims);
+                } else if self.in_scene && !self.posed_by.is_empty() && !self.first_step && self.last_anim != WALK && self.last_anim != RUN
+                    && anims.action(item.shape, self.last_anim).is_some_and(|a| a.two_step() && a.looping())
+                {
+                    // A spell's gesture in two halves (lifting the focus
+                    // and lowering it to the casting pose again): the
+                    // script plays only the first, so the Avatar was left
+                    // with his arm in the air. He finishes the gesture and
+                    // holds the spell, as in the original. (To its very
+                    // last frame, the casting pose: a looping walk leaves
+                    // that out, as it equals the first.)
+                    if self.start(self.last_anim, item, anims) {
+                        if let Some(p) = self.playing.as_mut() {
+                            p.end = p.action.size;
+                        }
+                    }
                 }
             }
         }
