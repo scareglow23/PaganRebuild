@@ -151,6 +151,21 @@ impl Mover {
         self.start(id, item, anims)
     }
 
+    /// The animation just started begins with the very picture the actor
+    /// shows (a spell's gesture from the casting pose he holds): that
+    /// frame is left out, so that he moves at once and not two ticks
+    /// later, after the sound the script plays with it. Only a frame that
+    /// moves him nowhere and plays nothing.
+    pub fn skip_shown_first(&mut self, shown_frame: u32) {
+        let dir = self.dir;
+        let Some(p) = self.playing.as_mut() else { return };
+        let f = *p.action.frame(dir, p.frame);
+        let next = p.action.next_frame(p.frame, p.end);
+        if f.frame == shown_frame && f.delta_dir == 0 && f.delta_z == 0 && f.sfx == 0 && next != p.end && next < p.action.size {
+            p.frame = next;
+        }
+    }
+
     /// Starts the next animation from its first frame, even if it is the
     /// same as the last one (a climb right after a climb).
     pub fn forget_last(&mut self) {

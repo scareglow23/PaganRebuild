@@ -1084,7 +1084,11 @@ impl Game {
                     mover.hold = false;
                     self.waking = false;
                 }
+                let posed = !mover.posed_by.is_empty();
                 let ok = mover.play(action, &it, &mut self.data.anims);
+                if id == AVATAR && ok && posed {
+                    mover.skip_shown_first(it.frame as u32);
+                }
                 if id == AVATAR && ok {
                     // the script, those waiting for it, and its fellows of
                     // the same class on the Avatar (a spell runs its
