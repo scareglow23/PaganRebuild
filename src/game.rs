@@ -1163,10 +1163,12 @@ impl Game {
             return;
         }
         // actors between two steps are shown on their way
-        let moved = self.place_between_steps();
+        let mut moved = self.place_between_steps();
 
         let avatar = self.avatar();
         let (cx, cy, cz) = self.view_centre();
+        // (after the camera: it stays where it is)
+        self.align_gesture_feet(&mut moved);
         // the view turned to another side (optional), smoothly from one to the next
         self.turn.settle();
         let angle = if self.options.turn_view { self.turn.angle() } else { 0.0 };
@@ -1368,6 +1370,64 @@ impl Game {
             }
         }
         moved
+    }
+
+    /// The Avatar's spell gesture of lifting the focus (animation 30) has
+    /// its feet drawn 4 to 5 pixels aside from the casting pose it starts
+    /// and ends with, looking half of the eight ways (an inexactness of the
+    /// original pictures): stepping into it he seemed to make a little side
+    /// step. While he plays it he is drawn shifted so that the feet stay
+    /// where they were. Only for drawing; like `place_between_steps` the
+    /// real position goes into `moved` to be put back.
+    fn align_gesture_feet(&mut self, moved: &mut Vec<(usize, (i32, i32, i32), u32, u16)>) {
+        const GESTURE: u32 = 30;
+        if self.view_turned() {
+            return;
+        }
+        let Some(m) = self.actors.get(&AVATAR) else { return };
+        let (anim, _) = m.shown();
+        let dir = m.dir;
+        if anim != GESTURE || !m.busy() {
+            return;
+        }
+        let Some(idx) = self.map().index(AVATAR) else { return };
+        let it = self.map().items[idx];
+        let Some(action) = self.data.anims.action(it.shape, GESTURE) else { return };
+        let pose = action.frame(dir, 0).frame;
+        let middle = action.frame(dir, action.size / 2).frame;
+        if it.frame == pose {
+            return;
+        }
+        let Some(shape) = self.data.shapes.original(it.shape) else { return };
+        // the middle of the feet (the lowest rows), from the frame's origin
+        let feet = |n: u32| -> Option<f32> {
+            let f = shape.frames.get(n as usize)?;
+            let (mut sum, mut count) = (0i32, 0i32);
+            for y in (f.height - 8).max(0)..f.height {
+                for x in 0..f.width {
+                    if f.pixels[(y * f.width + x) as usize] != crate::shape::TRANSPARENT {
+                        sum += x - f.xoff;
+                        count += 1;
+                    }
+                }
+            }
+            (count > 0).then(|| sum as f32 / count as f32)
+        };
+        let (Some(a), Some(b)) = (feet(pose), feet(middle)) else { return };
+        let mut dx = (a - b).round() as i32;
+        if it.flags & crate::map::FLG_FLIPPED != 0 {
+            dx = -dx;
+        }
+        if dx == 0 {
+            return;
+        }
+        if !moved.iter().any(|e| e.0 == idx) {
+            moved.push((idx, (it.x, it.y, it.z), it.frame, it.flags));
+        }
+        // a screen pixel to the right is (x - y) / 4 one more
+        let item = &mut self.map_mut().items[idx];
+        item.x += 2 * dx;
+        item.y -= 2 * dx;
     }
 
     /// Speech above the speakers, and the name of what is under the
