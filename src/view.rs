@@ -126,8 +126,9 @@ pub struct ViewOptions {
     /// direction it climbs in (0 = north, clockwise) and the height it
     /// climbs from: it is seen in front of the ledge (see `climbed_ledge`).
     pub climbing: Option<(usize, u8, i32)>,
-    /// With the lighting on: the stone floor's pictures with light and
-    /// shadow painted in are drawn as the plain one (`plain_floor`).
+    /// With the lighting on: light and shadow painted into the pictures
+    /// are left out, as the lighting makes its own (`plain_floor_frame`,
+    /// `PAINTED_LAMP_LIGHT`).
     pub plain_floor: bool,
 }
 
@@ -145,6 +146,12 @@ pub fn plain_floor_frame(shape: u32, frame: u32) -> u32 {
         _ => frame,
     }
 }
+
+/// The pool of light painted on the ground under a town's street lamps (a
+/// see-through yellow patch). With the lighting on the lamps light the
+/// ground themselves, and the patch lay on it as a flat yellow disc: it is
+/// not drawn then.
+pub const PAINTED_LAMP_LIGHT: u32 = 632;
 
 /// An item as it was drawn, for finding what is under the mouse pointer.
 pub struct Painted {
@@ -204,6 +211,9 @@ pub fn render(surf: &mut Surface, cam: &Camera, items: &[Item], infos: &[ShapeIn
         // invisible things are not drawn, except the Avatar: faintly
         let ghost = it.flags & FLG_INVISIBLE != 0;
         if ghost && it.id != 1 {
+            continue;
+        }
+        if opts.plain_floor && it.shape == PAINTED_LAMP_LIGHT {
             continue;
         }
         let frame_no = if opts.plain_floor { plain_floor_frame(it.shape, it.frame) } else { it.frame };
