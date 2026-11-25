@@ -126,6 +126,24 @@ pub struct ViewOptions {
     /// direction it climbs in (0 = north, clockwise) and the height it
     /// climbs from: it is seen in front of the ledge (see `climbed_ledge`).
     pub climbing: Option<(usize, u8, i32)>,
+    /// With the lighting on: the stone floor's pictures with light and
+    /// shadow painted in are drawn as the plain one (`plain_floor`).
+    pub plain_floor: bool,
+}
+
+/// The grey flagstone floor (shape 35) comes in three brightnesses of the
+/// same two patterns: plain (frames 0, 1), darker (2, 3, about 70 %) and
+/// lighter (4, 5, about 150 %). The original painted light and shadow into
+/// rooms with them (a light slab at a door's threshold). With the lighting
+/// on, light and shadow come from the lamps and walls, and these slabs
+/// stood out as dark and light squares: they are drawn plain.
+pub fn plain_floor_frame(shape: u32, frame: u32) -> u32 {
+    const FLAGSTONES: u32 = 35;
+    match (shape, frame) {
+        (FLAGSTONES, 2 | 4) => 0,
+        (FLAGSTONES, 3 | 5) => 1,
+        _ => frame,
+    }
 }
 
 /// An item as it was drawn, for finding what is under the mouse pointer.
@@ -188,13 +206,14 @@ pub fn render(surf: &mut Surface, cam: &Camera, items: &[Item], infos: &[ShapeIn
         if ghost && it.id != 1 {
             continue;
         }
+        let frame_no = if opts.plain_floor { plain_floor_frame(it.shape, it.frame) } else { it.frame };
         let Some(shape) = shapes.get(it.shape) else { continue };
-        let Some(frame) = shape.frames.get(it.frame as usize) else { continue };
+        let Some(frame) = shape.frames.get(frame_no as usize) else { continue };
         if frame.width == 0 {
             continue;
         }
         let dims = FrameDims { width: frame.width, height: frame.height, xoff: frame.xoff, yoff: frame.yoff };
-        sorter.add(id, (it.x, it.y, it.z), it.shape, it.frame, it.flags & FLG_FLIPPED != 0, ghost, info, &dims);
+        sorter.add(id, (it.x, it.y, it.z), it.shape, frame_no, it.flags & FLG_FLIPPED != 0, ghost, info, &dims);
     }
 
     let order = sorter.paint_order();

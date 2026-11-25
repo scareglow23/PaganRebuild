@@ -1173,6 +1173,7 @@ impl Game {
         let climbing = self.actors.get(&AVATAR).filter(|m| m.busy() && (crate::anim::CLIMB_FIRST..=crate::anim::CLIMB_LAST).contains(&m.last_anim()));
         let climbing = climbing.map(|m| (m.dir, m.anim_start().map_or(avatar.z, |s| s.2)));
         opts.climbing = climbing.and_then(|(dir, from)| Some((self.map().index(AVATAR)?, dir, from)));
+        opts.plain_floor = self.options.lighting;
         let Game { data: crate::gamedata::GameData { shapes, infos, pal, .. }, maps, cur_map, turn, view: ViewState { pixel_ids, rooms_seen, shade_cache, .. }, .. } = self;
         let map = &maps[cur_map];
 
