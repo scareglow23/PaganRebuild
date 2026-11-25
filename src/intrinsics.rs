@@ -1085,6 +1085,26 @@ impl Game {
                     self.waking = false;
                 }
                 let ok = mover.play(action, &it, &mut self.data.anims);
+                if id == AVATAR && ok {
+                    // the script, those waiting for it, and its fellows of
+                    // the same class on the Avatar (a spell runs its
+                    // gestures, words and effect side by side)
+                    mover.posed_by = match self.scripts.procs.get(caller) {
+                        Some(p) => {
+                            let (class, item) = (p.class, p.item);
+                            let mut chain = self.waiting_chain(p.pid);
+                            let fellows: Vec<u16> = self.scripts.procs.iter().filter(|q| q.class == class && q.item == item && !q.terminated).map(|q| q.pid).collect();
+                            for pid in fellows {
+                                if !chain.contains(&pid) {
+                                    chain.push(pid);
+                                }
+                            }
+                            chain
+                        }
+                        None => Vec::new(),
+                    };
+                    mover.posed_for = 0;
+                }
                 self.actors.insert(id, mover);
                 if ok { self.add_native(Kind::AnimWait(id), id, 0x00F0) as u32 } else { 0 }
             }

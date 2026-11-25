@@ -374,6 +374,23 @@ impl Game {
         }
     }
 
+    /// A process and all that wait for it, and for those in turn.
+    pub fn waiting_chain(&self, pid: u16) -> Vec<u16> {
+        let mut chain = vec![pid];
+        let mut i = 0;
+        while i < chain.len() && chain.len() < 16 {
+            if let Some(p) = self.scripts.procs.iter().find(|p| p.pid == chain[i]) {
+                for &w in &p.waiting {
+                    if !chain.contains(&w) {
+                        chain.push(w);
+                    }
+                }
+            }
+            i += 1;
+        }
+        chain
+    }
+
     pub fn add_native(&mut self, kind: Kind, item: u16, ptype: u16) -> u16 {
         let pid = self.new_pid();
         self.scripts.procs.push(Process::native(pid, kind, item, ptype));

@@ -833,6 +833,33 @@ impl Game {
         }
     }
 
+    /// Whether the Avatar keeps the last frame of an animation a script
+    /// played on him, because that script still runs and is likely to
+    /// play the next one (casting a spell: raise the hands, lift the
+    /// focus, let go). Without it he dropped to his standing pose for a
+    /// moment between them. Ends when the player moves him, the script
+    /// ends, or after `SCRIPT_POSE_TICKS` without a new animation.
+    fn script_pose(&self, mover: &mut crate::actor::Mover, moving: bool) -> bool {
+        if mover.posed_by.is_empty() {
+            return false;
+        }
+        let running = self.scripts.procs.iter().any(|p| mover.posed_by.contains(&p.pid) && !p.terminated);
+        // the scripts done: a few ticks more, for the one they woke to
+        // play the next animation
+        let last = crate::actor::SCRIPT_POSE_TICKS;
+        if !running && mover.posed_for < last - 4 {
+            mover.posed_for = last - 4;
+        }
+        if moving || mover.posed_for >= last {
+            mover.posed_by.clear();
+            return false;
+        }
+        if !mover.busy() || !running {
+            mover.posed_for += 1;
+        }
+        true
+    }
+
     fn tick_actor(&mut self, id: u16, input: Option<MoveInput>) {
         let Some(mut mover) = self.actors.remove(&id) else { return };
         if let Some(idx) = self.map().index(id) {
@@ -842,7 +869,7 @@ impl Game {
                 let before = (it.x, it.y, it.z);
                 let pose_of = |it: &Item| (it.frame, it.flags & crate::map::FLG_FLIPPED != 0);
                 let pose_before = pose_of(&it);
-                mover.in_scene = id == AVATAR && self.stasis;
+                mover.in_scene = id == AVATAR && (self.stasis || self.script_pose(&mut mover, input.is_some()));
                 if mover.tick(input, &mut it, map, &self.data.infos, &mut self.data.anims) {
                     let after = (it.x, it.y, it.z);
                     let jump = (after.0 - before.0).abs().max((after.1 - before.1).abs()).max((after.2 - before.2).abs());

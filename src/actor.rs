@@ -121,11 +121,25 @@ pub struct Mover {
     /// `choose`).
     #[serde(skip)]
     turning_on_the_move: bool,
+    /// The script process that played the Avatar's last animation and
+    /// those waiting for it (a spell being cast): while one of them runs
+    /// he keeps the last frame between their animations instead of
+    /// dropping to his idle pose, for at most `SCRIPT_POSE_TICKS` (see
+    /// Game::script_pose). Emptied when the player moves him.
+    #[serde(skip)]
+    pub posed_by: Vec<u16>,
+    /// Ticks he has been holding a pose for that script.
+    #[serde(skip)]
+    pub posed_for: u32,
 }
+
+/// How long the Avatar holds the last frame of a script's animation while
+/// the script still runs (game ticks, 2 seconds).
+pub const SCRIPT_POSE_TICKS: u32 = 60;
 
 impl Mover {
     pub fn new(dir: u8) -> Mover {
-        Mover { dir: dir & 7, last_anim: STAND, first_step: true, playing: None, repeat: 0, falling: None, auto_stand: false, sfx: 0, footstep: None, stand_anim: STAND, hold: false, attack: None, hit_done: false, shown: (STAND, 0), steer: None, strict: false, careful: false, may_drop: false, fall_from: None, in_scene: false, player_walk: false, settle: false, placed: false, resume: None, turning_on_the_move: false }
+        Mover { dir: dir & 7, last_anim: STAND, first_step: true, playing: None, repeat: 0, falling: None, auto_stand: false, sfx: 0, footstep: None, stand_anim: STAND, hold: false, attack: None, hit_done: false, shown: (STAND, 0), steer: None, strict: false, careful: false, may_drop: false, fall_from: None, in_scene: false, player_walk: false, settle: false, placed: false, resume: None, turning_on_the_move: false, posed_by: Vec::new(), posed_for: 0 }
     }
 
     /// Plays an animation once. Returns false if the shape has no such animation.
