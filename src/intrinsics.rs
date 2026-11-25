@@ -1110,6 +1110,12 @@ impl Game {
                     mover.posed_for = 0;
                 }
                 self.actors.insert(id, mover);
+                // from the pose he holds, the gesture shows at once, in
+                // the tick the script starts it (with the sound it plays),
+                // not only at his next turn
+                if id == AVATAR && ok && posed {
+                    self.tick_actor(id, None);
+                }
                 if ok { self.add_native(Kind::AnimWait(id), id, 0x00F0) as u32 } else { 0 }
             }
             0xA1 | 0xA2 => {

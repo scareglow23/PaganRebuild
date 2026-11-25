@@ -860,7 +860,7 @@ impl Game {
         true
     }
 
-    fn tick_actor(&mut self, id: u16, input: Option<MoveInput>) {
+    pub(crate) fn tick_actor(&mut self, id: u16, input: Option<MoveInput>) {
         let Some(mut mover) = self.actors.remove(&id) else { return };
         if let Some(idx) = self.map().index(id) {
             let mut it = self.map().items[idx];
