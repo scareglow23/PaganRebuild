@@ -133,9 +133,12 @@ pub struct Mover {
     pub posed_for: u32,
 }
 
-/// How long the Avatar holds the last frame of a script's animation while
-/// the script still runs (game ticks, 2 seconds).
-pub const SCRIPT_POSE_TICKS: u32 = 60;
+/// How long at most the Avatar holds the last frame of a script's
+/// animation while the script still runs (game ticks, 20 seconds): a spell
+/// is held until it is done (the Aerial Servant: until the thing it
+/// carries lies on the ground again), only a script that never ends
+/// should not leave him posed for good.
+pub const SCRIPT_POSE_TICKS: u32 = 600;
 
 impl Mover {
     pub fn new(dir: u8) -> Mover {
