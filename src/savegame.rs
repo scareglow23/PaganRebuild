@@ -426,7 +426,8 @@ impl Game {
             ask: &self.ask,
             reader: &self.ui.reader,
             ethereal: &self.ethereal,
-            stasis: &self.stasis,
+            // (a guard stopping the Avatar is no scene to load again)
+            stasis: &(self.stasis && !self.palace.holding()),
             pending_teleport: &self.pending_teleport,
             just_teleported: &self.just_teleported,
             camera: &self.camera,
