@@ -1233,8 +1233,16 @@ impl Sight {
             // a post: as a wall, only its sides seen (+x, +y) are lit, by
             // lights in front of them (not from inside a house through the
             // corner of its walls)
-            Target::Post(x0, y0, x1, y1, z) => {
-                if lx < x1 && ly < y1 {
+            // (judged by the side the point is on: of a post in the middle
+            // of a wall only the side towards the street is seen, and a
+            // fire in the house further along it is not in front of it)
+            Target::Post(x0, y0, x1, y1, z, side) => {
+                let behind = match side {
+                    Some(true) => lx < x1,
+                    Some(false) => ly < y1,
+                    None => lx < x1 && ly < y1,
+                };
+                if behind {
                     return false;
                 }
                 (lx.clamp(x0, x1), ly.clamp(y0, y1), z)
@@ -1389,8 +1397,10 @@ enum Target {
     Face(i32, i32, i32, bool, i32),
     /// On another thing: its box (x0, y0, x1, y1) and the height of its foot.
     Box(i32, i32, i32, i32, i32),
-    /// On a post (or the corner stone of walls): as `Box`.
-    Post(i32, i32, i32, i32, i32),
+    /// On a post (or the corner stone of walls): as `Box`, and the side
+    /// this point is on: facing +y (Some(false), left of its front corner
+    /// in the picture), +x (Some(true)) or not known (None, at the edge).
+    Post(i32, i32, i32, i32, i32, Option<bool>),
 }
 
 /// The points of the grid (as `targets`) within reach of a light with
@@ -1446,7 +1456,17 @@ fn targets(ids: &[u32], items: &[crate::map::Item], infos: &[crate::shape::Shape
                         Target::Face(x, it.y, it.z, false, it.y)
                     }
                     // a post (many count as ground too: one can stand on them)
-                    None if is_post(it, infos) => Target::Post(b.x - b.xd, b.y - b.yd, b.x, b.y, it.z),
+                    // (the side: along a line of sight x - y stays the same,
+                    // and is x1 - y1 at the front corner)
+                    None if is_post(it, infos) => {
+                        let (x, y) = to_world(sx, sy, 0);
+                        let side = match (x - y).cmp(&(b.x - b.y)) {
+                            std::cmp::Ordering::Less => Some(false),
+                            std::cmp::Ordering::Greater => Some(true),
+                            std::cmp::Ordering::Equal => None,
+                        };
+                        Target::Post(b.x - b.xd, b.y - b.yd, b.x, b.y, it.z, side)
+                    }
                     // a floor or the ground: its top
                     None if si.land => {
                         let (x, y) = to_world(sx, sy, it.z + b.zd);
