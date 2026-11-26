@@ -202,6 +202,21 @@ impl SortItem {
             return false;
         }
 
+        // A figure walking through something it may pass (the gap of an
+        // iron fence filled with see-through bars, shape 851, 160 long):
+        // their boxes overlap, and further down the long thing's front
+        // corner (x + y) decided, painting the bars over the Avatar even
+        // when he stood mostly in front of them. Across the thing's long
+        // side, the front edges decide.
+        let passable = |s: &SortItem| !s.solid && !s.flat && !s.standing && !s.lying;
+        let across = |thing: &SortItem| if thing.x - thing.x_left >= thing.y - thing.y_far { (a.y, b.y) } else { (a.x, b.x) };
+        if a.standing && passable(b) || b.standing && passable(a) {
+            let (fa, fb) = across(if a.standing { b } else { a });
+            if fa != fb {
+                return fa < fb;
+            }
+        }
+
         // z with a tolerance
         if a.z_top - 8 <= b.z && a.z < b.z_top - 8 {
             return true;
