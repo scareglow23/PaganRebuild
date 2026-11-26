@@ -50,6 +50,7 @@ mod map;
 mod mapfix;
 mod menu;
 mod movie;
+mod palace_guards;
 mod palette;
 mod passersby;
 mod path;

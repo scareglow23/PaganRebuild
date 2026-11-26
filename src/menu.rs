@@ -44,7 +44,7 @@ const CONTROLS_TAB: usize = 2;
 const TAB_SWITCHES: [&[Switch]; TABS] = [
     &[Switch::Music, Switch::BetterSound, Switch::SpatialSound, Switch::VictoryFanfare],
     &[Switch::SmoothCamera, Switch::EvenWalk, Switch::TurnView, Switch::Lighting, Switch::LampShadows, Switch::Shadows, Switch::Storm, Switch::Pixels, Switch::ShowArmour, Switch::ShowHelm, Switch::MagicGlow, Switch::WideView, Switch::MonsterFade, Switch::AvatarOutline],
-    &[Switch::Controls, Switch::HoldWalk, Switch::PickThings, Switch::RoadKeys, Switch::NoticeFar, Switch::TalkTruce, Switch::AvoidFlames, Switch::SleepUntil, Switch::PentagramSnap, Switch::PentagramReach],
+    &[Switch::Controls, Switch::HoldWalk, Switch::PickThings, Switch::RoadKeys, Switch::NoticeFar, Switch::TalkTruce, Switch::AvoidFlames, Switch::SleepUntil, Switch::PentagramSnap, Switch::PentagramReach, Switch::PalaceGuards],
     &[Switch::EnemyHealth, Switch::TextSize, Switch::HoverNames, Switch::Minimap, Switch::Guide, Switch::PuzzleSpots, Switch::BetterInventory, Switch::Journal, Switch::Practice],
 ];
 
@@ -90,11 +90,12 @@ enum Switch {
     EvenWalk,
     PickThings,
     LampShadows,
+    PalaceGuards,
 }
 
 impl Switch {
-    const ALL: [Switch; 39] = [
-        Switch::SmoothCamera, Switch::EnemyHealth, Switch::Controls, Switch::RoadKeys, Switch::TurnView, Switch::Lighting, Switch::Pixels, Switch::Music, Switch::SpatialSound, Switch::TextSize, Switch::ShowArmour, Switch::ShowHelm, Switch::Minimap, Switch::BetterInventory, Switch::HoverNames, Switch::HoldWalk, Switch::Journal, Switch::Practice, Switch::AlbumMusic, Switch::BetterSound, Switch::WideView, Switch::Shadows, Switch::SleepUntil, Switch::NoticeFar, Switch::TalkTruce, Switch::VictoryFanfare, Switch::AvatarOutline, Switch::AvatarMenu, Switch::Guide, Switch::PuzzleSpots, Switch::Storm, Switch::PentagramSnap, Switch::PentagramReach, Switch::AvoidFlames, Switch::MonsterFade, Switch::MagicGlow, Switch::EvenWalk, Switch::PickThings, Switch::LampShadows,
+    const ALL: [Switch; 40] = [
+        Switch::SmoothCamera, Switch::EnemyHealth, Switch::Controls, Switch::RoadKeys, Switch::TurnView, Switch::Lighting, Switch::Pixels, Switch::Music, Switch::SpatialSound, Switch::TextSize, Switch::ShowArmour, Switch::ShowHelm, Switch::Minimap, Switch::BetterInventory, Switch::HoverNames, Switch::HoldWalk, Switch::Journal, Switch::Practice, Switch::AlbumMusic, Switch::BetterSound, Switch::WideView, Switch::Shadows, Switch::SleepUntil, Switch::NoticeFar, Switch::TalkTruce, Switch::VictoryFanfare, Switch::AvatarOutline, Switch::AvatarMenu, Switch::Guide, Switch::PuzzleSpots, Switch::Storm, Switch::PentagramSnap, Switch::PentagramReach, Switch::AvoidFlames, Switch::MonsterFade, Switch::MagicGlow, Switch::EvenWalk, Switch::PickThings, Switch::LampShadows, Switch::PalaceGuards,
     ];
 
     /// Key in the settings file.
@@ -139,6 +140,7 @@ impl Switch {
             Switch::EvenWalk => "even_walk",
             Switch::PickThings => "pick_things",
             Switch::LampShadows => "lamp_shadows",
+            Switch::PalaceGuards => "palace_guards",
         }
     }
 
@@ -185,6 +187,7 @@ impl Switch {
             Switch::EvenWalk => ["Gleichm\u{84}\u{e1}iges Gehen", "Marche r\u{82}guli\u{8a}re", "Even walking"],
             Switch::PickThings => ["Dinge durchschalten", "Parcourir les objets", "Cycle through things"],
             Switch::LampShadows => ["Schatten der Lampen", "Ombres des lampes", "Lamp shadows"],
+            Switch::PalaceGuards => ["Palastwachen (Experiment)", "Gardes du palais (essai)", "Palace guards (experiment)"],
         }
     }
 
@@ -378,6 +381,10 @@ pub struct Options {
     /// Walls cast shadows in the light of lamps and fires (off: the light
     /// shines through walls, but costs less time, for slow machines).
     pub lamp_shadows: bool,
+    /// Experiment: the guards at the door to the throne room of the palace
+    /// in Tenebrae stop the Avatar while they see him (palace_guards.rs).
+    /// Off unless switched on.
+    pub palace_guards: bool,
 }
 
 /// Sizes of the names under the pointer, relative to the original text
@@ -404,7 +411,7 @@ pub const ZOOM_NORMAL: usize = 1;
 
 impl Default for Options {
     fn default() -> Options {
-        Options { smooth_camera: true, even_walk: true, pick_things: true, enemy_health: true, modern_controls: true, click_walk: true, road_keys: true, turn_view: false, lighting: true, pixels: PIXELS_SHARP, zoom: ZOOM_NORMAL, text_size: 2, better_music: true, spatial_sound: true, show_armour: true, show_helm: true, minimap: true, better_inventory: true, hover_names: 0, hold_walk: true, journal: true, practice: true, album_music: true, better_sound: true, passersby: false, wide_view: true, shadows: true, sleep_until: true, notice_far: true, talk_truce: true, spell_notes: false, map_fade: true, victory_fanfare: false, avatar_outline: OUTLINE_DEFAULT, avatar_menu: false, guide: true, puzzle_spots: true, storm: 1, pentagram_snap: true, pentagram_reach: true, avoid_flames: true, monster_fade: true, seen_end: false, magic_glow: true, lamp_shadows: true }
+        Options { smooth_camera: true, even_walk: true, pick_things: true, enemy_health: true, modern_controls: true, click_walk: true, road_keys: true, turn_view: false, lighting: true, pixels: PIXELS_SHARP, zoom: ZOOM_NORMAL, text_size: 2, better_music: true, spatial_sound: true, show_armour: true, show_helm: true, minimap: true, better_inventory: true, hover_names: 0, hold_walk: true, journal: true, practice: true, album_music: true, better_sound: true, passersby: false, wide_view: true, shadows: true, sleep_until: true, notice_far: true, talk_truce: true, spell_notes: false, map_fade: true, victory_fanfare: false, avatar_outline: OUTLINE_DEFAULT, avatar_menu: false, guide: true, puzzle_spots: true, storm: 1, pentagram_snap: true, pentagram_reach: true, avoid_flames: true, monster_fade: true, seen_end: false, magic_glow: true, lamp_shadows: true, palace_guards: false }
     }
 }
 
@@ -460,6 +467,7 @@ impl Options {
             Switch::EvenWalk => self.even_walk,
             Switch::PickThings => self.pick_things,
             Switch::LampShadows => self.lamp_shadows,
+            Switch::PalaceGuards => self.palace_guards,
         }
     }
 
@@ -508,6 +516,7 @@ impl Options {
             Switch::EvenWalk => self.even_walk = !self.even_walk,
             Switch::PickThings => self.pick_things = !self.pick_things,
             Switch::LampShadows => self.lamp_shadows = !self.lamp_shadows,
+            Switch::PalaceGuards => self.palace_guards = !self.palace_guards,
         }
     }
 

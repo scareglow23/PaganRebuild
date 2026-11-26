@@ -380,6 +380,8 @@ pub struct Game {
     /// The script machine: the scripts, their processes and values (vm.rs).
     pub scripts: crate::vm::Scripts,
     pub barks: Vec<Bark>,
+    /// The guards at the palace door (option "palace_guards").
+    pub palace: crate::palace_guards::PalaceGuards,
     /// Where the answers of the open conversation were drawn (top line)
     /// and how high each line is.
     ask_top: i32,
@@ -609,6 +611,7 @@ impl Game {
                 warned: HashSet::default(),
             },
             barks: Vec::new(),
+            palace: Default::default(),
             ask_top: 0,
             ask_line: 8,
             ask: None,
@@ -871,6 +874,11 @@ impl Game {
                 let pose_before = pose_of(&it);
                 mover.in_scene = id == AVATAR && (self.stasis || self.script_pose(&mut mover, input.is_some()));
                 if mover.tick(input, &mut it, map, &self.data.infos, &mut self.data.anims) {
+                    // (option: the guards at the palace door hold him back)
+                    if id == AVATAR && self.guards_bar_step(before, (it.x, it.y, it.z)) {
+                        (it.x, it.y, it.z) = before;
+                        self.palace.barred = true;
+                    }
                     let after = (it.x, it.y, it.z);
                     let jump = (after.0 - before.0).abs().max((after.1 - before.1).abs()).max((after.2 - before.2).abs());
                     if self.options.smooth_camera && after != before && jump < 200 {
@@ -1001,6 +1009,7 @@ impl Game {
             }
             self.tick_actor(id, input);
         }
+        self.tick_palace_guards();
         if self.tick % 4 == 1 {
             self.update_fast_area();
             // (the clearing egg's scripts have run: its floor gap is filled)
@@ -2193,6 +2202,10 @@ impl Game {
         // armour or a weapon in his backpack: "use" puts it on
         if use_it && self.root_container(id) == AVATAR && self.wears_on_use(id) {
             self.wear(id);
+            return;
+        }
+        // (option: the guards at the palace door stop it)
+        if use_it && self.guards_keep_door(id) {
             return;
         }
         self.call_event(id, if use_it { 1 } else { 0 }, &[]);
