@@ -106,6 +106,10 @@ const SOFT_FALLOFF: i32 = 3;
 /// A light falls on what reaches at least up to this much below it (a lamp
 /// on an upper floor does not light the room under it).
 const BELOW: i32 = 104;
+/// The floor of a room under an upper storey lies this much below its
+/// floor (houses: 48).
+const STOREY_MIN: i32 = 24;
+const STOREY_MAX: i32 = 120;
 /// Flat lights (lava, a fire field) light what stands up to this high
 /// above their ground: the rock beside lava is often a little higher.
 const FLAT_REACH: i32 = 40;
@@ -155,6 +159,9 @@ pub struct Light {
     pub thin: Option<bool>,
     /// A flat light (lava, a fire field): fades out above `top`.
     pub soft: bool,
+    /// The height of the floor of an upper storey it stands on (`i32::MIN`:
+    /// none): what lies wholly below that floor is in the room under it.
+    pub floor: i32,
 }
 
 impl Light {
@@ -306,14 +313,18 @@ impl Game {
             // (a fire's box is often taller than the room it burns in: its
             // light ends at the height of a room, not on the roof above)
             let top = it.z + if zd <= 8 { FLAT_REACH } else if flickers { zd.min(FIRE_REACH) } else { zd };
+            // (a candle upstairs does not shine through the floor it stands
+            // on into the room below; not so the turret on a roof (661):
+            // its glow is the light of the room under it)
+            let floor = if soft || post || it.shape == 661 { i32::MIN } else { self.storey_floor(&it, wx, wy) };
             if lamp_seen {
-                out.push(Light { x: sx, y: sy, radius: radius * (0.95 + 0.05 * strength), rgb: rgb.map(|c| c * strength), z, top, wx, wy, thin, soft });
+                out.push(Light { x: sx, y: sy, radius: radius * (0.95 + 0.05 * strength), rgb: rgb.map(|c| c * strength), z, top, wx, wy, thin, soft, floor });
                 if let Some((core_radius, core_rgb)) = core_of(it.shape) {
-                    out.push(Light { x: sx, y: sy, radius: core_radius * FURTHER, rgb: core_rgb.map(|c| c * strength), z, top, wx, wy, thin, soft });
+                    out.push(Light { x: sx, y: sy, radius: core_radius * FURTHER, rgb: core_rgb.map(|c| c * strength), z, top, wx, wy, thin, soft, floor });
                 }
             }
             if ground_seen {
-                out.push(Light { x: gx as f32, y: gy as f32, radius: ground_radius, rgb: rgb.map(|c| c * 0.9), z: ground, top, wx, wy, thin, soft });
+                out.push(Light { x: gx as f32, y: gy as f32, radius: ground_radius, rgb: rgb.map(|c| c * 0.9), z: ground, top, wx, wy, thin, soft, floor });
             }
         }
         out
@@ -347,6 +358,26 @@ impl Game {
     }
 }
 impl Game {
+    /// The height of the floor of an upper storey (a flat piece of ground
+    /// that is also the ceiling of the room below, marked as roof) that a
+    /// light standing at (`wx`, `wy`) stands on, with a room under it (floor
+    /// a storey lower); `i32::MIN` if none. (Many ground floors are marked
+    /// as roof too.)
+    fn storey_floor(&self, it: &crate::map::Item, wx: i32, wy: i32) -> i32 {
+        let items = self.map().items_near(it.x, it.y, 256);
+        let under = |test: &dyn Fn(&crate::map::Item, &crate::shape::ShapeInfo, &crate::map::WorldBox) -> bool| {
+            items.iter().any(|&i| {
+                let o = &self.map().items[i];
+                let Some(oi) = self.data.infos.get(o.shape as usize) else { return false };
+                let b = crate::map::WorldBox::of(o, oi);
+                o.in_world() && oi.land && wx < b.x && wx >= b.x - b.xd && wy < b.y && wy >= b.y - b.yd && test(o, oi, &b)
+            })
+        };
+        let on_floor = under(&|o, oi, b| oi.roof && b.zd <= 8 && o.z + b.zd == it.z);
+        let room_below = on_floor && under(&|o, _, b| (it.z - STOREY_MAX..=it.z - STOREY_MIN).contains(&(o.z + b.zd)));
+        if room_below { it.z } else { i32::MIN }
+    }
+
     /// Is a light covered by floor right above it (lava under a corridor
     /// that has not fallen in)? Then its glow does not show.
     fn covered(&self, it: &crate::map::Item, si: &crate::shape::ShapeInfo) -> bool {
@@ -401,6 +432,8 @@ struct Field {
     top: i32,
     /// Fades with the height (see `SOFT_FADE`).
     soft: bool,
+    /// See `Light::floor`.
+    floor: i32,
     /// The first point of the grid (in grid steps) and its size in points.
     gx0: i32,
     gy0: i32,
@@ -420,16 +453,16 @@ impl Field {
 /// `shade`: does a light (by its place in the list) reach a grid point
 /// (1), or is a wall in the way (0)?
 fn fields(lights: &[Light], w: i32, h: i32, shade: &(dyn Fn(usize, i32, i32) -> f32 + Sync)) -> Vec<Field> {
-    let mut groups: Vec<(i32, i32, bool, Vec<(usize, &Light)>)> = Vec::new();
+    let mut groups: Vec<(i32, i32, bool, i32, Vec<(usize, &Light)>)> = Vec::new();
     for (n, l) in lights.iter().enumerate() {
-        match groups.iter_mut().find(|g| g.0 == l.z && g.1 == l.top && g.2 == l.soft) {
-            Some(g) => g.3.push((n, l)),
-            None => groups.push((l.z, l.top, l.soft, vec![(n, l)])),
+        match groups.iter_mut().find(|g| g.0 == l.z && g.1 == l.top && g.2 == l.soft && g.3 == l.floor) {
+            Some(g) => g.4.push((n, l)),
+            None => groups.push((l.z, l.top, l.soft, l.floor, vec![(n, l)])),
         }
     }
     groups
         .into_iter()
-        .filter_map(|(z, top, soft, ls)| {
+        .filter_map(|(z, top, soft, floor, ls)| {
             // the part of the picture the group reaches, in grid points
             let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
             for (_, l) in &ls {
@@ -476,7 +509,7 @@ fn fields(lights: &[Light], w: i32, h: i32, shade: &(dyn Fn(usize, i32, i32) -> 
                     }
                 }
             });
-            Some(Field { z, top, soft, gx0, gy0, gw, gh, values })
+            Some(Field { z, top, soft, floor, gx0, gy0, gw, gh, values })
         })
         .collect()
 }
@@ -748,6 +781,10 @@ impl Seen<'_> {
         // dark square in the floor warm in the glow)
         let floor_by_flat_light = f.soft && top == foot && foot <= f.z;
         if top < f.z - BELOW || (self.roof && foot >= f.z && !floor_by_flat_light) {
+            return None;
+        }
+        // (in the room under the floor the light stands on)
+        if foot < f.floor && top <= f.floor {
             return None;
         }
         if f.soft {
