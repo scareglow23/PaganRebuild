@@ -1214,6 +1214,12 @@ pub struct Sight {
 }
 
 impl Sight {
+    /// Does a wall higher than `z` stand at this point (as far as known)?
+    fn wall_at(&self, x: i32, y: i32, z: i32) -> bool {
+        let (cx, cy) = ((x - self.x0).div_euclid(SIGHT_CELL), (y - self.y0).div_euclid(SIGHT_CELL));
+        cx >= 0 && cy >= 0 && cx < self.n && cy < self.n && self.tops[(cy * self.n + cx) as usize] > z
+    }
+
     /// Is a point reached by the light at `from`, with no wall between?
     fn sees(&self, t: Target) -> bool {
         let (lx, ly) = self.from;
@@ -1236,13 +1242,18 @@ impl Sight {
             // (judged by the side the point is on: of a post in the middle
             // of a wall only the side towards the street is seen, and a
             // fire in the house further along it is not in front of it)
+            // (a side that a wall goes on from is not seen: its pixels at the
+            // edge belong to the other side)
             Target::Post(x0, y0, x1, y1, z, side) => {
-                let behind = match side {
-                    Some(true) => lx < x1,
-                    Some(false) => ly < y1,
-                    None => lx < x1 && ly < y1,
+                let open_x = !self.wall_at(x1 + SIGHT_CELL / 2, (y0 + y1) / 2, z);
+                let open_y = !self.wall_at((x0 + x1) / 2, y1 + SIGHT_CELL / 2, z);
+                let (front_x, front_y) = (open_x && lx >= x1, open_y && ly >= y1);
+                let lit = match side {
+                    Some(true) if open_x => front_x,
+                    Some(false) if open_y => front_y,
+                    _ => front_x || front_y,
                 };
-                if behind {
+                if !lit {
                     return false;
                 }
                 (lx.clamp(x0, x1), ly.clamp(y0, y1), z)
