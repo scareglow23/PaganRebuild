@@ -345,7 +345,10 @@ impl Game {
         // (a warning he calls from where he stands)
         let far = task != Task::Warn && self.map().get(target).copied().is_none_or(|t| self.box_gap(&it, &t) > STEP_UP);
         let (phase, pid) = if far {
-            let pid = self.add_native(crate::vm::Kind::Pathfind(crate::effects::Pathfind::new(g, target, (0, 0))), g, crate::effects::PROC_WALK);
+            // (to shut the door: right up to it, not to talking distance)
+            let mut pf = crate::effects::Pathfind::new(g, target, (0, 0));
+            pf.touch = matches!(task, Task::Shut(..));
+            let pid = self.add_native(crate::vm::Kind::Pathfind(pf), g, crate::effects::PROC_WALK);
             (Phase::StepUp, pid)
         } else {
             (Phase::Turn, 0)
@@ -416,6 +419,16 @@ impl Game {
                         m.stand_anim = COMBAT_STAND;
                     }
                     self.guard_plays(g, COMBAT_STAND);
+                    // (warning him, he shuts the door behind him at the same
+                    // time, unless the Avatar still stands in its way)
+                    if task == Task::Warn && !self.avatar_in_door() {
+                        if let Some((wing, _, _)) = self.palace.sneaked {
+                            if self.palace_door(wing, OPEN_DOOR) {
+                                self.call_event(wing, 1, &[]);
+                            }
+                            self.palace.sneaked = None;
+                        }
+                    }
                     let text = if task == Task::Warn {
                         self.tr(["Lass dich da drin nicht noch einmal blicken!", "Que je ne t'y reprenne plus !", "Let me not catch thee in there again!"])
                     } else {
