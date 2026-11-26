@@ -60,6 +60,10 @@ const SPEAK_TICKS: u32 = 60;
 /// from the doorway, not before this many ticks, and not after this many.
 const CLEAR: i32 = 96;
 const SNEAK_WAIT: u32 = 20;
+/// A wing still shut this long after the click did not open (or was shut
+/// again). Opened right at the door, the door's script first moves the
+/// Avatar out of its way (holding him), and the wing opens only then.
+const OPEN_WAIT: u32 = 150;
 /// The guard notices the open door only after the Avatar has been clear
 /// of it this long (not at once: as if he had to notice it first).
 const REACT_TICKS: u32 = 90;
@@ -176,13 +180,13 @@ impl Game {
         at_doorway(at, xd) && !in_hall(at, yd) && av.y >= DOOR_FRONT - 32 - CLEAR
     }
 
-    /// Where a guard (footprint 64 by 64) stands to shut a wing: in the
-    /// hall right before the half of the doorway the wing closes.
-    fn before_wing(&self, wing: u16) -> (i32, i32) {
+    /// Where guard `g` (footprint 64 by 64) stands to shut the door: in
+    /// the hall right before the end of the doorway on his side (one "use"
+    /// shuts both wings; he need not cross to the other).
+    fn before_door(&self, g: u16) -> (i32, i32) {
         let mid = (DOOR_X0 + DOOR_X1) / 2;
-        let left = self.map().get(wing).is_some_and(|w| w.x <= mid);
-        let centre = if left { (DOOR_X0 + mid) / 2 } else { (mid + DOOR_X1) / 2 };
-        (centre + 32, DOOR_FRONT + 72)
+        let left = self.map().get(g).is_some_and(|it| it.x - 32 <= mid);
+        (if left { DOOR_X0 + 72 } else { DOOR_X1 - 8 }, DOOR_FRONT + 72)
     }
 
     /// The guards at their posts by the doorway, alive.
@@ -292,7 +296,7 @@ impl Game {
         let waited = self.tick.wrapping_sub(since);
         // (shut again meanwhile - not just clicked, still shut until it
         // swings open -, or long ago, or switched off: nothing to wonder at)
-        let shut = waited >= SNEAK_WAIT && self.palace_door(wing, SHUT_DOOR);
+        let shut = waited >= OPEN_WAIT && self.palace_door(wing, SHUT_DOOR);
         if waited > SNEAK_FORGET || shut || !self.options.palace_guards || self.cur_map != MAP {
             self.palace.sneaked = None;
             return;
@@ -354,8 +358,8 @@ impl Game {
         let walk = match task {
             Task::Warn => None,
             Task::Stop => self.map().get(AVATAR).copied().filter(|av| self.box_gap(&it, av) > STEP_UP).map(|_| crate::effects::Pathfind::new(g, AVATAR, (0, 0))),
-            Task::Shut(wing, _) => {
-                let spot = self.before_wing(wing);
+            Task::Shut(..) => {
+                let spot = self.before_door(g);
                 ((it.x - spot.0).abs().max((it.y - spot.1).abs()) > 8).then(|| {
                     let mut pf = crate::effects::Pathfind::new(g, 0, spot);
                     pf.exact = true;
