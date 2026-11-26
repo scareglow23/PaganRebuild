@@ -9,8 +9,10 @@
 //! and goes back to his post. Invisible (the black potion), the Avatar
 //! slips past, unless he brushes right past a guard (as creatures in a
 //! fight see him, combat.rs); once he is through, a guard comes, shuts the
-//! door he left open, and shakes his head over it. Scenes that lead the
-//! Avatar are not stopped.
+//! door he left open, and shakes his head over it (so too when the door
+//! is opened from inside). Coming out again where a guard sees him, the
+//! Avatar is warned (not held), and the guard shuts the door behind him.
+//! Scenes that lead the Avatar are not stopped.
 //!
 //! This makes the quest for the ceremonial dagger harder than in the
 //! original: the way to the key under the pillow and into her bedroom
@@ -65,8 +67,11 @@ const CLOSE_TICKS: u32 = 20;
 enum Task {
     /// He stops the Avatar.
     Stop,
-    /// He shuts the door the invisible Avatar left open, and wonders.
-    Shut(u16),
+    /// He warns the Avatar who came out (not holding him).
+    Warn,
+    /// He shuts the door (this wing) the Avatar left open; and wonders who
+    /// did, unless he saw him.
+    Shut(u16, bool),
 }
 
 /// The scene of a guard.
@@ -116,8 +121,9 @@ pub struct PalaceGuards {
     /// back ends up to 32 short of it: he does not drift off further each
     /// time).
     posts: std::collections::HashMap<u16, ((i32, i32, i32), u8)>,
-    /// The invisible Avatar went through the door: which wing, since when.
-    sneaked: Option<(u16, u32)>,
+    /// The Avatar left the door open: which wing, since when, and whether
+    /// the guard is to wonder who did (he did not see him).
+    sneaked: Option<(u16, u32, bool)>,
     /// Where the Avatar was in the last tick (to see him slip through).
     last: Option<(i32, i32, i32)>,
 }
@@ -191,18 +197,19 @@ impl Game {
             return false;
         }
         let av = self.avatar();
-        match self.guard_watching((av.x, av.y, av.z)) {
-            Some(g) => {
+        let (_, yd) = self.avatar_pad();
+        // (from the hall, seen: stopped)
+        if in_hall((av.x, av.y, av.z), yd) {
+            if let Some(g) = self.guard_watching((av.x, av.y, av.z)) {
                 self.guard_stops(g);
-                true
-            }
-            None => {
-                if av.flags & FLG_INVISIBLE != 0 && !self.door_guards().is_empty() {
-                    self.palace.sneaked = Some((id, self.tick));
-                }
-                false
+                return true;
             }
         }
+        // (unseen, or from inside: a guard will shut it again)
+        if !self.door_guards().is_empty() {
+            self.palace.sneaked = Some((id, self.tick, true));
+        }
+        false
     }
 
     /// Would the Avatar, going from `from` to `to`, step into the doorway
@@ -226,14 +233,27 @@ impl Game {
                 self.guard_stops(g);
             }
         }
-        // (through a door that stood open, unseen: the wing nearest him)
+        // (through a door that stood open, unseen: the wing nearest him is
+        // to be shut; coming out where a guard sees him: he is warned, and
+        // the door shut behind him)
         let (xd, yd) = self.avatar_pad();
         if let Some(was) = self.palace.last.replace(now) {
             let through = at_doorway(now, xd) && in_hall(was, yd) && !in_hall(now, yd);
-            if through && self.palace_rule() && self.palace.sneaked.is_none() && av.flags & FLG_INVISIBLE != 0 {
+            let out = at_doorway(now, xd) && !in_hall(was, yd) && in_hall(now, yd);
+            if (through || out) && self.palace_rule() {
                 let wing = self.map().items_near(now.0, DOOR_FRONT, 256).into_iter().map(|i| self.map().items[i]).filter(|d| self.palace_door(d.id, OPEN_DOOR)).min_by_key(|d| (d.x - now.0).abs()).map(|d| d.id);
-                if let Some(wing) = wing {
-                    self.palace.sneaked = Some((wing, self.tick));
+                let seen = if out { self.guard_watching(now) } else { None };
+                if let Some(g) = seen {
+                    if let Some(wing) = wing.or(self.palace.sneaked.map(|s| s.0)) {
+                        self.palace.sneaked = Some((wing, self.tick, false));
+                    }
+                    if !self.palace.holding() {
+                        self.start_scene(g, Task::Warn);
+                    }
+                } else if through && av.flags & FLG_INVISIBLE != 0 && self.palace.sneaked.is_none() {
+                    if let Some(wing) = wing {
+                        self.palace.sneaked = Some((wing, self.tick, true));
+                    }
                 }
             }
         }
@@ -244,11 +264,12 @@ impl Game {
     /// The Avatar slipped through unseen and is clear of the doorway: the
     /// guard nearest the open wing comes to shut it.
     fn guard_comes_to_shut(&mut self) {
-        let Some((wing, since)) = self.palace.sneaked else { return };
+        let Some((wing, since, wonder)) = self.palace.sneaked else { return };
         let waited = self.tick.wrapping_sub(since);
-        // (shut again meanwhile, or long ago, or switched off: nothing to
-        // wonder at)
-        if waited > SNEAK_FORGET || self.palace_door(wing, SHUT_DOOR) || !self.options.palace_guards || self.cur_map != MAP {
+        // (shut again meanwhile - not just clicked, still shut until it
+        // swings open -, or long ago, or switched off: nothing to wonder at)
+        let shut = waited >= SNEAK_WAIT && self.palace_door(wing, SHUT_DOOR);
+        if waited > SNEAK_FORGET || shut || !self.options.palace_guards || self.cur_map != MAP {
             self.palace.sneaked = None;
             return;
         }
@@ -264,7 +285,7 @@ impl Game {
         let Some(door) = self.map().get(wing).copied() else { return };
         let Some(g) = self.door_guards().into_iter().min_by_key(|&g| self.map().get(g).map_or(i32::MAX, |it| (it.x - door.x).abs() + (it.y - door.y).abs())) else { return };
         self.palace.sneaked = None;
-        self.start_scene(g, Task::Shut(wing));
+        self.start_scene(g, Task::Shut(wing, wonder));
     }
 
     /// Guard `g` stops the Avatar: the Avatar is held, turned to him, and
@@ -294,10 +315,11 @@ impl Game {
         let (post, post_dir) = *self.palace.posts.entry(g).or_insert(((it.x, it.y, it.z), dir));
         self.kill_processes(g, crate::effects::PROC_WALK);
         let target = match task {
-            Task::Stop => AVATAR,
-            Task::Shut(wing) => wing,
+            Task::Stop | Task::Warn => AVATAR,
+            Task::Shut(wing, _) => wing,
         };
-        let far = self.map().get(target).copied().is_none_or(|t| self.box_gap(&it, &t) > STEP_UP);
+        // (a warning he calls from where he stands)
+        let far = task != Task::Warn && self.map().get(target).copied().is_none_or(|t| self.box_gap(&it, &t) > STEP_UP);
         let (phase, pid) = if far {
             let pid = self.add_native(crate::vm::Kind::Pathfind(crate::effects::Pathfind::new(g, target, (0, 0))), g, crate::effects::PROC_WALK);
             (Phase::StepUp, pid)
@@ -343,11 +365,11 @@ impl Game {
             }
             Phase::Turn => {
                 let to = match task {
-                    Task::Stop => {
+                    Task::Stop | Task::Warn => {
                         let av = self.avatar();
                         (av.x, av.y)
                     }
-                    Task::Shut(wing) => {
+                    Task::Shut(wing, _) => {
                         let d = self.map().get(wing).copied().unwrap_or_default();
                         let (xd, yd) = self.data.infos.get(d.shape as usize).map_or((0, 0), |si| (si.x * 32, si.y * 32));
                         (d.x - xd / 2, d.y - yd / 2)
@@ -355,11 +377,11 @@ impl Game {
                 };
                 if self.turn_step(g, world_dir(to.0 - it.x, to.1 - it.y) as u8, ticks) {
                     match task {
-                        Task::Stop => {
+                        Task::Stop | Task::Warn => {
                             self.guard_plays(g, READY_WEAPON);
                             next(self, Phase::Ready, 0);
                         }
-                        Task::Shut(_) => next(self, Phase::Shut, 0),
+                        Task::Shut(..) => next(self, Phase::Shut, 0),
                     }
                 }
             }
@@ -370,14 +392,21 @@ impl Game {
                         m.stand_anim = COMBAT_STAND;
                     }
                     self.guard_plays(g, COMBAT_STAND);
-                    let text = self.tr(["Halt! Hier ist kein Durchgang.", "Halte ! On ne passe pas.", "Halt! There is no passage here."]);
+                    let text = if task == Task::Warn {
+                        self.tr(["Lass dich da drin nicht noch einmal blicken!", "Que je ne t'y reprenne plus !", "Let me not catch thee in there again!"])
+                    } else {
+                        self.tr(["Halt! Hier ist kein Durchgang.", "Halte ! On ne passe pas.", "Halt! There is no passage here."])
+                    };
                     let pid = self.bark(g, text.to_string()) as u16;
                     next(self, Phase::Speak, pid);
                 }
             }
             Phase::Speak => {
                 if !running(self) && ticks >= SPEAK_TICKS {
-                    self.stasis = false;
+                    // (only the stasis of his own stopping)
+                    if task == Task::Stop {
+                        self.stasis = false;
+                    }
                     if let Some(m) = self.actors.get_mut(&g) {
                         m.stand_anim = STAND;
                     }
@@ -389,7 +418,10 @@ impl Game {
                 let said = phase == Phase::Unready || (!running(self) && ticks >= SPEAK_TICKS);
                 if !busy && said {
                     if (it.x - post.0).abs().max((it.y - post.1).abs()) > 8 {
-                        let pid = self.add_native(crate::vm::Kind::Pathfind(crate::effects::Pathfind::new(g, 0, (post.0, post.1))), g, crate::effects::PROC_WALK);
+                        // (right into his niche, not near it)
+                        let mut pf = crate::effects::Pathfind::new(g, 0, (post.0, post.1));
+                        pf.exact = true;
+                        let pid = self.add_native(crate::vm::Kind::Pathfind(pf), g, crate::effects::PROC_WALK);
                         next(self, Phase::Back, pid);
                     } else {
                         next(self, Phase::TurnBack, 0);
@@ -397,7 +429,7 @@ impl Game {
                 }
             }
             Phase::Shut => {
-                let Task::Shut(wing) = task else { return };
+                let Task::Shut(wing, wonder) = task else { return };
                 // (pid: 0 until he has shut it; the time counts from then)
                 if pid == 0 {
                     // (not onto the Avatar, who came back into the doorway)
@@ -411,6 +443,9 @@ impl Game {
                         self.call_event(wing, 1, &[]);
                     }
                     next(self, Phase::Shut, 1);
+                } else if ticks >= CLOSE_TICKS && !wonder {
+                    // (he saw who it was: nothing to wonder at)
+                    next(self, Phase::Unready, 0);
                 } else if ticks >= CLOSE_TICKS {
                     self.guard_plays(g, SHAKE_HEAD);
                     let text = self.tr(["Nanu? Wer hat die T\u{81}r offen gelassen?", "Tiens ? Qui a laiss\u{82} cette porte ouverte ?", "Hm? Who left this door open?"]);

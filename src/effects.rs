@@ -42,11 +42,15 @@ pub struct Pathfind {
     /// the walk searches anew anyway.)
     #[serde(skip)]
     replan_due: bool,
+    /// To a spot: onto the spot itself (12 units), not near it (the guards
+    /// of the palace back into their niches). Not kept in savegames.
+    #[serde(skip)]
+    pub exact: bool,
 }
 
 impl Pathfind {
     pub fn new(actor: u16, target: u16, pos: (i32, i32)) -> Pathfind {
-        Pathfind { actor, target, pos, touch: false, planned: false, goal: (0, 0), next: 0, replans: 0, last: (i32::MIN, i32::MIN), detour: (0, 0), stuck: 0, ticks: 0, scripted: false, replan_due: false }
+        Pathfind { actor, target, pos, touch: false, planned: false, goal: (0, 0), next: 0, replans: 0, last: (i32::MIN, i32::MIN), detour: (0, 0), stuck: 0, ticks: 0, scripted: false, replan_due: false, exact: false }
     }
 
     /// No progress for a while: look for another way, or sidestep.
@@ -218,7 +222,7 @@ impl Game {
         // sent by a click to a spot on another level: only there is he there
         let level = if pf.actor == AVATAR && pf.target == 0 { self.orders.walk_level } else { None };
         let exact = level.is_some() && self.orders.walk_exact;
-        let reach = if exact { reach.min(12) } else { reach };
+        let reach = if exact || (pf.exact && pf.target == 0) { reach.min(12) } else { reach };
         let arrived = dx.abs().max(dy.abs()) <= reach && on_level(level, it.z);
         // Sent by the player to a spot on the ground, the Avatar keeps the
         // direction he walked in: "arrived" begins some way before the
