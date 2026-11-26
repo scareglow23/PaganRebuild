@@ -11,7 +11,9 @@
 //! fight see him, combat.rs); once he is through, a guard comes, shuts the
 //! door he left open, and shakes his head over it (so too when the door
 //! is opened from inside). Coming out again where a guard sees him, the
-//! Avatar is warned (not held), and the guard shuts the door behind him.
+//! Avatar is held a moment and warned, and the guard shuts the door
+//! behind him. A guard comes to shut the door only a while after the
+//! Avatar has left it.
 //! Scenes that lead the Avatar are not stopped.
 //!
 //! This makes the quest for the ceremonial dagger harder than in the
@@ -58,6 +60,9 @@ const SPEAK_TICKS: u32 = 60;
 /// from the doorway, not before this many ticks, and not after this many.
 const CLEAR: i32 = 96;
 const SNEAK_WAIT: u32 = 20;
+/// The guard notices the open door only after the Avatar has been clear
+/// of it this long (not at once: as if he had to notice it first).
+const REACT_TICKS: u32 = 90;
 const SNEAK_FORGET: u32 = 1800;
 /// How long the door takes to shut before the guard wonders.
 const CLOSE_TICKS: u32 = 20;
@@ -126,12 +131,14 @@ pub struct PalaceGuards {
     sneaked: Option<(u16, u32, bool)>,
     /// Where the Avatar was in the last tick (to see him slip through).
     last: Option<(i32, i32, i32)>,
+    /// Since when the Avatar has been clear of the open door.
+    clear_since: Option<u32>,
 }
 
 impl PalaceGuards {
     /// Does a guard hold the Avatar now (the stasis is the scene's own)?
     pub(crate) fn holding(&self) -> bool {
-        self.scene.as_ref().is_some_and(|s| s.task == Task::Stop && matches!(s.phase, Phase::StepUp | Phase::Turn | Phase::Ready | Phase::Speak))
+        self.scene.as_ref().is_some_and(|s| matches!(s.task, Task::Stop | Task::Warn) && matches!(s.phase, Phase::StepUp | Phase::Turn | Phase::Ready | Phase::Speak))
     }
 }
 
@@ -157,6 +164,16 @@ impl Game {
     /// The Avatar's footprint (x, y).
     fn avatar_pad(&self) -> (i32, i32) {
         self.map().get(AVATAR).and_then(|av| self.data.infos.get(av.shape as usize)).map_or((64, 64), |si| (si.x * 32, si.y * 32))
+    }
+
+    /// Is the Avatar where the wings swing (in the doorway or just inside
+    /// it)? They swing in, towards the throne room: in the hall he is not
+    /// in their way.
+    fn avatar_in_door(&self) -> bool {
+        let av = self.avatar();
+        let (xd, yd) = self.avatar_pad();
+        let at = (av.x, av.y, av.z);
+        at_doorway(at, xd) && !in_hall(at, yd) && av.y >= DOOR_FRONT - 32 - CLEAR
     }
 
     /// The guards at their posts by the doorway, alive.
@@ -247,9 +264,7 @@ impl Game {
                     if let Some(wing) = wing.or(self.palace.sneaked.map(|s| s.0)) {
                         self.palace.sneaked = Some((wing, self.tick, false));
                     }
-                    if !self.palace.holding() {
-                        self.start_scene(g, Task::Warn);
-                    }
+                    self.guard_holds(g, Task::Warn);
                 } else if through && av.flags & FLG_INVISIBLE != 0 && self.palace.sneaked.is_none() {
                     if let Some(wing) = wing {
                         self.palace.sneaked = Some((wing, self.tick, true));
@@ -277,11 +292,15 @@ impl Game {
         if !self.palace_door(wing, OPEN_DOOR) || waited < SNEAK_WAIT || self.palace.scene.is_some() || self.stasis {
             return;
         }
-        let av = self.avatar();
-        let clear = av.x < DOOR_X0 - CLEAR || av.x - 64 > DOOR_X1 + CLEAR || av.y < DOOR_FRONT - 32 - CLEAR || av.y - 64 > DOOR_FRONT + CLEAR;
-        if !clear {
+        if self.avatar_in_door() {
+            self.palace.clear_since = None;
             return;
         }
+        let tick = self.tick;
+        if tick.wrapping_sub(*self.palace.clear_since.get_or_insert(tick)) < REACT_TICKS {
+            return;
+        }
+        self.palace.clear_since = None;
         let Some(door) = self.map().get(wing).copied() else { return };
         let Some(g) = self.door_guards().into_iter().min_by_key(|&g| self.map().get(g).map_or(i32::MAX, |it| (it.x - door.x).abs() + (it.y - door.y).abs())) else { return };
         self.palace.sneaked = None;
@@ -291,6 +310,11 @@ impl Game {
     /// Guard `g` stops the Avatar: the Avatar is held, turned to him, and
     /// the scene begins (anew, if he was on his way back to his post).
     fn guard_stops(&mut self, g: u16) {
+        self.guard_holds(g, Task::Stop);
+    }
+
+    /// Guard `g` holds the Avatar for `task` (stopping or warning him).
+    fn guard_holds(&mut self, g: u16, task: Task) {
         if self.palace.holding() {
             return;
         }
@@ -299,7 +323,7 @@ impl Game {
         self.cancel_approach();
         let av = self.avatar();
         self.stop_walk(AVATAR, &av, (it.x - av.x, it.y - av.y));
-        self.start_scene(g, Task::Stop);
+        self.start_scene(g, task);
     }
 
     /// Guard `g` sets out on `task` (an earlier scene of the guards ends).
@@ -403,8 +427,8 @@ impl Game {
             }
             Phase::Speak => {
                 if !running(self) && ticks >= SPEAK_TICKS {
-                    // (only the stasis of his own stopping)
-                    if task == Task::Stop {
+                    // (only the stasis of his own stopping or warning)
+                    if matches!(task, Task::Stop | Task::Warn) {
                         self.stasis = false;
                     }
                     if let Some(m) = self.actors.get_mut(&g) {
@@ -433,10 +457,7 @@ impl Game {
                 // (pid: 0 until he has shut it; the time counts from then)
                 if pid == 0 {
                     // (not onto the Avatar, who came back into the doorway)
-                    let av = self.avatar();
-                    let (xd, _) = self.avatar_pad();
-                    let in_way = at_doorway((av.x, av.y, av.z), xd) && av.y >= DOOR_FRONT - 160 && av.y - 64 <= DOOR_FRONT + 32;
-                    if in_way {
+                    if self.avatar_in_door() {
                         return;
                     }
                     if self.palace_door(wing, OPEN_DOOR) {
